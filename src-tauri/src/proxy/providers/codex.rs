@@ -1655,6 +1655,93 @@ wire_api = "chat"
     }
 
     #[test]
+    fn test_model_catalog_reasoning_resolves_each_transport_family() {
+        let provider = create_provider(json!({
+            "modelCatalog": {
+                "models": [
+                    {
+                        "model": "claude-sonnet-5",
+                        "codexChatReasoning": {
+                            "supportsThinking": true,
+                            "supportsEffort": false,
+                            "thinkingParam": "thinking",
+                            "effortParam": "none",
+                            "outputFormat": "reasoning_content"
+                        }
+                    },
+                    {
+                        "model": "glm-5.2",
+                        "codexChatReasoning": {
+                            "supportsThinking": true,
+                            "supportsEffort": false,
+                            "thinkingParam": "thinking",
+                            "effortParam": "none",
+                            "outputFormat": "reasoning_content"
+                        }
+                    },
+                    {
+                        "model": "qwen-3.5",
+                        "codexChatReasoning": {
+                            "supportsThinking": true,
+                            "supportsEffort": false,
+                            "thinkingParam": "enable_thinking",
+                            "effortParam": "none",
+                            "outputFormat": "reasoning_content"
+                        }
+                    },
+                    {
+                        "model": "minimax-m2.7",
+                        "codexChatReasoning": {
+                            "supportsThinking": true,
+                            "supportsEffort": false,
+                            "thinkingParam": "reasoning_split",
+                            "effortParam": "none",
+                            "outputFormat": "reasoning_details"
+                        }
+                    },
+                    {
+                        "model": "gemini-2.5-flash",
+                        "codexChatReasoning": {
+                            "supportsThinking": true,
+                            "supportsEffort": true,
+                            "thinkingParam": "none",
+                            "effortParam": "thinking_level",
+                            "effortValueMode": "thinking_level",
+                            "outputFormat": "auto"
+                        }
+                    }
+                ]
+            }
+        }));
+
+        let claude =
+            resolve_codex_chat_reasoning_config(&provider, &json!({ "model": "claude-sonnet-5" }))
+                .unwrap();
+        assert_eq!(claude.thinking_param.as_deref(), Some("thinking"));
+        assert_eq!(claude.supports_effort, Some(false));
+
+        let glm =
+            resolve_codex_chat_reasoning_config(&provider, &json!({ "model": "glm-5.2" })).unwrap();
+        assert_eq!(glm.thinking_param.as_deref(), Some("thinking"));
+        assert_eq!(glm.effort_param.as_deref(), Some("none"));
+
+        let qwen = resolve_codex_chat_reasoning_config(&provider, &json!({ "model": "qwen-3.5" }))
+            .unwrap();
+        assert_eq!(qwen.thinking_param.as_deref(), Some("enable_thinking"));
+
+        let minimax =
+            resolve_codex_chat_reasoning_config(&provider, &json!({ "model": "minimax-m2.7" }))
+                .unwrap();
+        assert_eq!(minimax.thinking_param.as_deref(), Some("reasoning_split"));
+
+        let gemini =
+            resolve_codex_chat_reasoning_config(&provider, &json!({ "model": "gemini-2.5-flash" }))
+                .unwrap();
+        assert_eq!(gemini.effort_param.as_deref(), Some("thinking_level"));
+        assert_eq!(gemini.effort_value_mode.as_deref(), Some("thinking_level"));
+    }
+
+    #[test]
     fn test_resolve_codex_chat_reasoning_openrouter_platform_overrides_model() {
         let provider = create_provider(json!({
             "config": r#"
