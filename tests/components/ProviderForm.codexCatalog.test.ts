@@ -49,4 +49,38 @@ describe("ProviderForm Codex catalog helpers", () => {
       { model: "mimo-v2.5-pro", supportsParallelToolCalls: false },
     ]);
   });
+
+  it("preserves hidden model-level reasoning metadata across provider edits", () => {
+    expect(
+      normalizeCodexCatalogModelsForSave([
+        {
+          model: "deepseek-v4-pro",
+          contextWindow: 450000,
+          codexChatReasoning: {
+            supportsThinking: true,
+            supportsEffort: true,
+            thinkingParam: "thinking",
+            effortParam: "reasoning_effort",
+            effortValueMode: "deepseek",
+            outputFormat: "reasoning_content",
+          },
+          codexCapabilitySource: "codex-model-profile",
+        },
+      ]),
+    ).toEqual([
+      {
+        model: "deepseek-v4-pro",
+        contextWindow: 450000,
+        codexChatReasoning: {
+          supportsThinking: true,
+          supportsEffort: true,
+          thinkingParam: "thinking",
+          effortParam: "reasoning_effort",
+          effortValueMode: "deepseek",
+          outputFormat: "reasoning_content",
+        },
+        codexCapabilitySource: "codex-model-profile",
+      },
+    ]);
+  });
 });

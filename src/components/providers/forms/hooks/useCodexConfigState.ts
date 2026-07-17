@@ -92,6 +92,18 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
                 : typeof item?.base_instructions === "string"
                   ? item.base_instructions
                   : undefined;
+            const codexChatReasoning =
+              item?.codexChatReasoning &&
+              typeof item.codexChatReasoning === "object"
+                ? item.codexChatReasoning
+                : item?.codex_chat_reasoning &&
+                    typeof item.codex_chat_reasoning === "object"
+                  ? item.codex_chat_reasoning
+                  : undefined;
+            const codexCapabilitySource =
+              typeof item?.codexCapabilitySource === "string"
+                ? item.codexCapabilitySource
+                : undefined;
             return {
               model: typeof item?.model === "string" ? item.model : "",
               displayName:
@@ -113,6 +125,8 @@ export function useCodexConfigState({ initialData }: UseCodexConfigStateProps) {
                 : {}),
               ...(inputModalities ? { inputModalities } : {}),
               ...(baseInstructions ? { baseInstructions } : {}),
+              ...(codexChatReasoning ? { codexChatReasoning } : {}),
+              ...(codexCapabilitySource ? { codexCapabilitySource } : {}),
             };
           })
           .filter((item: CodexCatalogModel) => item.model.trim()),

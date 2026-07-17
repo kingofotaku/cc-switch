@@ -436,6 +436,11 @@ fn apply_reasoning_options(
         "reasoning.effort" => {
             result["reasoning"] = json!({ "effort": mapped });
         }
+        // Google Gemini's current reasoning transport uses a top-level
+        // thinking_level field rather than OpenAI's reasoning_effort alias.
+        "thinking_level" => {
+            result["thinking_level"] = json!(mapped);
+        }
         _ => {}
     }
 }
@@ -476,6 +481,14 @@ fn map_reasoning_effort(effort: &str, mode: Option<&str>) -> Option<&'static str
             "medium" => Some("medium"),
             "low" => Some("low"),
             "minimal" => Some("minimal"),
+            _ => None,
+        },
+        // Gemini thinking_level supports low/medium/high. Codex's xhigh/max
+        // are intentionally capped at the provider's documented high level.
+        "thinking_level" => match effort.as_str() {
+            "minimal" | "low" => Some("low"),
+            "medium" => Some("medium"),
+            "high" | "xhigh" | "max" => Some("high"),
             _ => None,
         },
         _ => match effort.as_str() {
@@ -2296,6 +2309,28 @@ mod tests {
         let result = responses_to_chat_completions_with_reasoning(input, Some(&config)).unwrap();
 
         assert_eq!(result["enable_thinking"], true);
+        assert!(result.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn responses_request_to_chat_maps_thinking_level_provider() {
+        let input = json!({
+            "model": "gemini-2.5-flash",
+            "input": "hello",
+            "reasoning": {"effort": "medium"}
+        });
+        let config = CodexChatReasoningConfig {
+            supports_thinking: Some(true),
+            supports_effort: Some(true),
+            thinking_param: Some("none".to_string()),
+            effort_param: Some("thinking_level".to_string()),
+            effort_value_mode: Some("thinking_level".to_string()),
+            output_format: Some("auto".to_string()),
+        };
+
+        let result = responses_to_chat_completions_with_reasoning(input, Some(&config)).unwrap();
+
+        assert_eq!(result["thinking_level"], "medium");
         assert!(result.get("reasoning_effort").is_none());
     }
 

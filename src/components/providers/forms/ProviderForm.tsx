@@ -159,6 +159,10 @@ export const normalizeCodexCatalogModelsForSave = (
     );
 
     const baseInstructions = item.baseInstructions?.trim();
+    const codexChatReasoning = normalizeCodexChatReasoningForSave(
+      item.codexChatReasoning,
+    );
+    const codexCapabilitySource = item.codexCapabilitySource?.trim();
 
     normalized.push({
       model,
@@ -172,6 +176,8 @@ export const normalizeCodexCatalogModelsForSave = (
         ? { inputModalities }
         : {}),
       ...(baseInstructions ? { baseInstructions } : {}),
+      ...(codexChatReasoning ? { codexChatReasoning } : {}),
+      ...(codexCapabilitySource ? { codexCapabilitySource } : {}),
     });
   }
 

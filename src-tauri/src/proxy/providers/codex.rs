@@ -267,7 +267,11 @@ fn codex_provider_catalog_model_ids(provider: &Provider) -> HashSet<String> {
         .map(|models| {
             models
                 .iter()
-                .filter_map(|model| model.get("model").and_then(|value| value.as_str()))
+                .filter_map(|model| {
+                    ["model", "modelId", "model_id", "slug", "id"]
+                        .into_iter()
+                        .find_map(|field| model.get(field).and_then(|value| value.as_str()))
+                })
                 .map(str::trim)
                 .filter(|model| !model.is_empty())
                 .map(ToString::to_string)
@@ -313,6 +317,23 @@ pub fn resolve_codex_chat_reasoning_config(
     provider: &Provider,
     body: &JsonValue,
 ) -> Option<CodexChatReasoningConfig> {
+    let requested_model = body
+        .get("model")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| codex_provider_upstream_model(provider));
+
+    // A provider can expose multiple model families at once. Prefer the
+    // modelCatalog row so one provider-level override cannot force Kimi/Qwen/
+    // DeepSeek/Claude models through the same reasoning transport.
+    if let Some(model) = requested_model.as_deref() {
+        if let Some(config) = codex_model_catalog_reasoning_config(provider, model) {
+            return Some(normalize_codex_chat_reasoning_config(config));
+        }
+    }
+
     if let Some(config) = provider
         .meta
         .as_ref()
@@ -322,6 +343,84 @@ pub fn resolve_codex_chat_reasoning_config(
     }
 
     infer_codex_chat_reasoning_config(provider, body)
+}
+
+fn codex_model_catalog_reasoning_config(
+    provider: &Provider,
+    model: &str,
+) -> Option<CodexChatReasoningConfig> {
+    let settings = &provider.settings_config;
+    let values = [
+        settings
+            .get("modelCatalog")
+            .and_then(|catalog| catalog.get("models")),
+        settings.get("modelCatalog"),
+        settings.get("models"),
+    ];
+
+    values
+        .into_iter()
+        .flatten()
+        .find_map(|value| codex_model_catalog_reasoning_config_in_value(value, model))
+}
+
+fn codex_model_catalog_reasoning_config_in_value(
+    value: &JsonValue,
+    model: &str,
+) -> Option<CodexChatReasoningConfig> {
+    if let Some(models) = value.as_array() {
+        return models.iter().find_map(|entry| {
+            codex_model_catalog_entry_matches(entry, None, model)
+                .then(|| codex_model_catalog_reasoning_config_from_entry(entry))?
+        });
+    }
+
+    let object = value.as_object()?;
+    object.iter().find_map(|(key, entry)| {
+        codex_model_catalog_entry_matches(entry, Some(key), model)
+            .then(|| codex_model_catalog_reasoning_config_from_entry(entry))?
+    })
+}
+
+fn codex_model_catalog_reasoning_config_from_entry(
+    entry: &JsonValue,
+) -> Option<CodexChatReasoningConfig> {
+    entry
+        .get("codexChatReasoning")
+        .or_else(|| entry.get("codex_chat_reasoning"))
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+}
+
+fn codex_model_catalog_entry_matches(entry: &JsonValue, key: Option<&str>, model: &str) -> bool {
+    key.is_some_and(|key| codex_model_ids_match(key, model))
+        || ["model", "modelId", "model_id", "slug", "id", "name"]
+            .into_iter()
+            .filter_map(|field| entry.get(field).and_then(|value| value.as_str()))
+            .any(|candidate| codex_model_ids_match(candidate, model))
+}
+
+fn codex_model_ids_match(candidate: &str, model: &str) -> bool {
+    let candidate = normalize_codex_model_id(candidate);
+    let model = normalize_codex_model_id(model);
+    if candidate.is_empty() || model.is_empty() {
+        return false;
+    }
+
+    if candidate == model {
+        return true;
+    }
+
+    let candidate_tail = candidate.rsplit('/').next().unwrap_or(candidate.as_str());
+    let model_tail = model.rsplit('/').next().unwrap_or(model.as_str());
+    candidate_tail == model_tail || candidate == model_tail || candidate_tail == model
+}
+
+fn normalize_codex_model_id(value: &str) -> String {
+    value
+        .trim()
+        .trim_start_matches("models/")
+        .to_ascii_lowercase()
 }
 
 fn normalize_codex_chat_reasoning_config(
@@ -1455,6 +1554,104 @@ wire_api = "chat"
         assert_eq!(config.supports_thinking, Some(false));
         assert_eq!(config.supports_effort, Some(false));
         assert_eq!(config.thinking_param.as_deref(), Some("none"));
+    }
+
+    #[test]
+    fn test_model_catalog_reasoning_overrides_provider_meta_for_mixed_catalog() {
+        let mut provider = create_provider(json!({
+            "config": r#"
+model_provider = "mixed"
+model = "deepseek-v4-pro"
+
+[model_providers.mixed]
+name = "Mixed Relay"
+base_url = "https://relay.example.com/v1"
+wire_api = "chat"
+"#,
+            "modelCatalog": {
+                "models": [
+                    {
+                        "model": "deepseek-v4-pro",
+                        "codexChatReasoning": {
+                            "supportsThinking": true,
+                            "supportsEffort": true,
+                            "thinkingParam": "thinking",
+                            "effortParam": "reasoning_effort",
+                            "effortValueMode": "deepseek",
+                            "outputFormat": "reasoning_content"
+                        }
+                    },
+                    {
+                        "model": "kimi/kimi-k2.6",
+                        "codexChatReasoning": {
+                            "supportsThinking": true,
+                            "supportsEffort": false,
+                            "thinkingParam": "thinking",
+                            "effortParam": "none",
+                            "outputFormat": "reasoning_content"
+                        }
+                    }
+                ]
+            }
+        }));
+        provider.meta = Some(crate::provider::ProviderMeta {
+            codex_chat_reasoning: Some(CodexChatReasoningConfig {
+                supports_thinking: Some(true),
+                supports_effort: Some(true),
+                thinking_param: Some("thinking".to_string()),
+                effort_param: Some("reasoning_effort".to_string()),
+                effort_value_mode: Some("passthrough".to_string()),
+                output_format: Some("auto".to_string()),
+            }),
+            ..Default::default()
+        });
+
+        let deepseek =
+            resolve_codex_chat_reasoning_config(&provider, &json!({ "model": "deepseek-v4-pro" }))
+                .unwrap();
+        assert_eq!(deepseek.effort_value_mode.as_deref(), Some("deepseek"));
+        assert_eq!(deepseek.effort_param.as_deref(), Some("reasoning_effort"));
+
+        let kimi =
+            resolve_codex_chat_reasoning_config(&provider, &json!({ "model": "kimi/kimi-k2.6" }))
+                .unwrap();
+        assert_eq!(kimi.supports_effort, Some(false));
+        assert_eq!(kimi.effort_param.as_deref(), Some("none"));
+    }
+
+    #[test]
+    fn test_model_catalog_reasoning_matches_model_id_alias() {
+        let mut provider = create_provider(json!({
+            "modelCatalog": {
+                "models": [{
+                    "modelId": "gemini-2.5-flash",
+                    "codexChatReasoning": {
+                        "supportsThinking": true,
+                        "supportsEffort": true,
+                        "thinkingParam": "none",
+                        "effortParam": "thinking_level",
+                        "effortValueMode": "thinking_level"
+                    }
+                }]
+            }
+        }));
+        provider.meta = Some(crate::provider::ProviderMeta {
+            codex_chat_reasoning: Some(CodexChatReasoningConfig {
+                supports_thinking: Some(true),
+                supports_effort: Some(false),
+                thinking_param: Some("thinking".to_string()),
+                effort_param: Some("none".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+
+        let config =
+            resolve_codex_chat_reasoning_config(&provider, &json!({ "model": "gemini-2.5-flash" }))
+                .unwrap();
+
+        assert_eq!(config.effort_param.as_deref(), Some("thinking_level"));
+        assert_eq!(config.effort_value_mode.as_deref(), Some("thinking_level"));
     }
 
     #[test]
