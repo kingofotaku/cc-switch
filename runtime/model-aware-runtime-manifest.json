@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "upstream_repository": "https://github.com/farion1231/cc-switch.git",
+  "base_commit": "997be22bfa5d14161a6f5b1f805631054368cdb0",
+  "source_commit": "d8ad24d5",
+  "cc_switch_version": "3.17.0",
+  "runtime_change": "model-level-codex-chat-reasoning",
+  "binary_policy": "build locally; do not commit binaries or credentials",
+  "required_checks": [
+    "pnpm typecheck",
+    "pnpm format:check",
+    "pnpm test:unit",
+    "cargo fmt --check --manifest-path src-tauri/Cargo.toml",
+    "cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",
+    "cargo test --manifest-path src-tauri/Cargo.toml"
+  ]
+}
