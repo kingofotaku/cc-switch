@@ -119,8 +119,14 @@ Build the renderer and then use the repository-local Tauri CLI:
 
 ```powershell
 & .\node_modules\.bin\vite.cmd build
-& .\node_modules\.bin\tauri.cmd build --no-bundle --ci --config '{"build":{"beforeBuildCommand":""}}'
+& .\node_modules\.bin\tauri.cmd build --no-bundle --ci `
+    --config .\src-tauri\tauri.model-aware-build.conf.json
 ```
+
+The small override only disables `beforeBuildCommand` because the renderer was
+already built explicitly. Passing inline JSON through the Windows `.cmd`
+launcher is intentionally avoided because its quoting rules can corrupt the
+configuration argument.
 
 The resulting `cc-switch.exe` is a local artifact and must not be committed to
 this public repository. Record its version and SHA256 in the private installer
