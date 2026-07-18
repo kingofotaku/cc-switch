@@ -110,10 +110,16 @@ cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-The Windows local build used for the Codex installation is:
+The Windows local build used for the Codex installation must be a Tauri
+production build. A bare `cargo build --release` leaves the WebView on
+`build.devUrl` (`http://localhost:3000`) and produces a backend that works while
+the desktop UI shows `ERR_CONNECTION_REFUSED`.
+
+Build the renderer and then use the repository-local Tauri CLI:
 
 ```powershell
-cargo build --release --manifest-path src-tauri/Cargo.toml
+& .\node_modules\.bin\vite.cmd build
+& .\node_modules\.bin\tauri.cmd build --no-bundle --ci --config '{"build":{"beforeBuildCommand":""}}'
 ```
 
 The resulting `cc-switch.exe` is a local artifact and must not be committed to
