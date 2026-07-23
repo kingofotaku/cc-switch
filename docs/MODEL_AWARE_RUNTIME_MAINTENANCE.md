@@ -38,7 +38,7 @@ generated or overwritten by the runtime patch.
 
 - Upstream remote: `origin` (`farion1231/cc-switch`)
 - Personal fork remote: `fork` (`kingofotaku/cc-switch`)
-- Working branch: `codex/model-aware-catalog`
+- Working branch: `codex/model-aware-catalog-v3.18.0`
 - Capability metadata remains generated outside CCS by the Codex catalog repair
   pipeline; this repository only teaches CCS how to consume model-level data.
 
@@ -85,17 +85,17 @@ change. Do not replace the installed executable before the source and tests
 pass.
 
 ```powershell
-git fetch origin
-git switch codex/model-aware-catalog
-git rebase origin/main
+git fetch origin --tags
+git switch codex/model-aware-catalog-v3.18.0
+git merge --no-ff v3.18.0
 ```
 
-Before applying the rebase, inspect the upstream diff in the four runtime
+Before applying the merge, inspect the upstream diff in the four runtime
 areas: Codex provider resolution, Chat Completions transformation, catalog
 types, and provider-form serialization. A conflict in any of these files is a
 behavioral conflict, not a cosmetic one.
 
-If the rebase conflicts in the Codex provider or transform files, resolve the
+If the merge conflicts in the Codex provider or transform files, resolve the
 conflict deliberately and keep the model-level precedence rule. Do not use an
 automatic conflict resolution that silently restores provider-only reasoning.
 
@@ -123,6 +123,22 @@ Build the renderer and then use the repository-local Tauri CLI:
     --config .\src-tauri\tauri.model-aware-build.conf.json
 ```
 
+Do not use `cargo build --release` as the distributable build. A production
+artifact can still contain the literal development URL because Tauri compiles
+the complete build configuration into the executable, so a plain string scan
+for `localhost:3000` is not a sufficient gate. Instead verify all of the
+following:
+
+- the release fingerprint enables Tauri's `custom-protocol` feature;
+- a filename from the freshly generated Vite `dist/assets` set is embedded in
+  the executable;
+- the artifact version and size are consistent with the production baseline;
+- a cold runtime smoke test does not request `localhost:3000` or
+  `127.0.0.1:3000`.
+
+The renderer must come from `build.frontendDist`; the development URL is never
+an acceptable runtime dependency.
+
 The small override only disables `beforeBuildCommand` because the renderer was
 already built explicitly. Passing inline JSON through the Windows `.cmd`
 launcher is intentionally avoided because its quoting rules can corrupt the
@@ -135,12 +151,15 @@ manifest used by the local Codex skill.
 The source delta can also be checked against a clean tree with:
 
 ```powershell
-& .\scripts\verify-model-aware-source.ps1 -BaseRef origin/main
+& .\scripts\verify-model-aware-source.ps1
 ```
 
 This check is read-only. It verifies the base relationship, working-tree
-state, changed-file list, and whitespace errors; it does not touch CCS, Codex,
-the provider database, or any local credentials.
+state, manifest/package version agreement, changed-file list, and whitespace
+errors. The fixed base commit is read from
+`runtime/model-aware-runtime-manifest.json`, so a later rolling `origin/main`
+does not invalidate a release build. The check does not touch CCS, Codex, the
+provider database, or any local credentials.
 
 ## Safety Gates
 
