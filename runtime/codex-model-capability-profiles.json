@@ -1,0 +1,815 @@
+{
+  "schema_version": 2,
+  "policy": "hybrid",
+  "neutral_base_instructions": "You are Codex, a coding agent using {display_name}. You and the user share the same workspace and collaborate to achieve the user's goals.",
+  "generation_only_fragments": [
+    "embedding",
+    "moderation",
+    "rerank",
+    "realtime",
+    "transcribe",
+    "tts",
+    "gpt-image",
+    "grok-imagine",
+    "image-generation",
+    "video-generation"
+  ],
+  "generation_only_patterns": [
+    "(?:^|/)(?:dall-e|imagen|veo|sora)(?:[-/:]|$)",
+    "(?:^|/)(?:stable-diffusion|flux|seedream|cogvideo|kling|hailuo|runway|luma)(?:[-/:]|$)",
+    "(?:^|/)(?:whisper|speech|asr)(?:[-/:]|$)"
+  ],
+  "official_vendor_hosts": [
+    "api.openai.com",
+    "chatgpt.com",
+    "api.anthropic.com",
+    "api.deepseek.com",
+    "api.x.ai",
+    "generativelanguage.googleapis.com",
+    "open.bigmodel.cn",
+    "api.moonshot.cn",
+    "dashscope.aliyuncs.com",
+    "api.minimaxi.com",
+    "api.minimax.io",
+    "api.mistral.ai"
+  ],
+  "families": [
+    {
+      "id": "anthropic",
+      "patterns": [
+        "(?:^|/)claude-",
+        "^anthropic/"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": true,
+      "reasoning_transport": "none",
+      "reasoning_levels": [],
+      "default_reasoning_level": null,
+      "evidence": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/vision",
+        "https://platform.claude.com/docs/en/build-with-claude/tool-use/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking"
+      ]
+    },
+    {
+      "id": "xai",
+      "patterns": [
+        "(?:^|/)grok-",
+        "(?:^|/)grok$",
+        "(?:^|/)composer-",
+        "^x-?ai/"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": true,
+      "reasoning_transport": "reasoning_effort",
+      "reasoning_levels": [
+        "none",
+        "low",
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://docs.x.ai/developers/models",
+        "https://docs.x.ai/developers/tools/function-calling",
+        "https://docs.x.ai/developers/tools/vision/image-understanding"
+      ]
+    },
+    {
+      "id": "deepseek",
+      "patterns": [
+        "^deepseek-",
+        "^deepseek/",
+        "(?:^|/)deepseek-"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "supports_image_detail_original": false,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": false,
+      "reasoning_transport": "deepseek_reasoning_effort",
+      "reasoning_levels": [
+        "none",
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://api-docs.deepseek.com/guides/thinking_mode",
+        "https://api-docs.deepseek.com/guides/function_calling"
+      ]
+    },
+    {
+      "id": "glm",
+      "patterns": [
+        "(?:^|/)glm-",
+        "^zhipu/"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "supports_image_detail_original": false,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": false,
+      "reasoning_transport": "thinking_toggle",
+      "reasoning_levels": [
+        "none",
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://docs.bigmodel.cn/cn/guide/models/text/glm-5",
+        "https://docs.bigmodel.cn/cn/guide/capabilities/function-calling"
+      ]
+    },
+    {
+      "id": "gemini",
+      "patterns": [
+        "(?:^|/)gemini-",
+        "^google/"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": true,
+      "reasoning_transport": "thinking_level",
+      "reasoning_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://ai.google.dev/gemini-api/docs/models",
+        "https://ai.google.dev/gemini-api/docs/function-calling",
+        "https://ai.google.dev/gemini-api/docs/thinking",
+        "https://ai.google.dev/gemini-api/docs/image-understanding"
+      ]
+    },
+    {
+      "id": "kimi",
+      "patterns": [
+        "(?:^|/)kimi-",
+        "^moonshot/"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "supports_image_detail_original": false,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": true,
+      "reasoning_transport": "none",
+      "reasoning_levels": [],
+      "default_reasoning_level": null,
+      "evidence": [
+        "https://platform.moonshot.cn/docs/guide/use-kimi-k2-5-model"
+      ]
+    },
+    {
+      "id": "qwen",
+      "patterns": [
+        "(?:^|/)qwen",
+        "^(?:alibaba|dashscope)/"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "supports_image_detail_original": false,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": true,
+      "reasoning_transport": "enable_thinking",
+      "reasoning_levels": [
+        "none",
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://help.aliyun.com/zh/model-studio/models",
+        "https://help.aliyun.com/zh/model-studio/qwen-function-calling"
+      ]
+    },
+    {
+      "id": "minimax",
+      "patterns": [
+        "(?:^|/)minimax-",
+        "^minimax/"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "supports_image_detail_original": false,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": true,
+      "reasoning_transport": "none",
+      "reasoning_levels": [],
+      "default_reasoning_level": null,
+      "evidence": [
+        "https://www.minimax.io/news/minimax-m2"
+      ]
+    },
+    {
+      "id": "mistral",
+      "patterns": [
+        "(?:^|/)mistral-",
+        "(?:^|/)(?:codestral|devstral|magistral|pixtral)(?:-|$)",
+        "^mistral/"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": true,
+      "reasoning_transport": "none",
+      "reasoning_levels": [],
+      "default_reasoning_level": null,
+      "evidence": [
+        "https://docs.mistral.ai/capabilities/function_calling/",
+        "https://docs.mistral.ai/capabilities/vision/"
+      ]
+    },
+    {
+      "id": "spark",
+      "patterns": [
+        "(?:^|/)spark-"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "supports_image_detail_original": false,
+      "supports_tools": false,
+      "supports_parallel_tool_calls": false,
+      "reasoning_transport": "none",
+      "reasoning_levels": [],
+      "default_reasoning_level": null,
+      "evidence": [
+        "https://www.xfyun.cn/doc/spark/Web.html"
+      ]
+    },
+    {
+      "id": "router",
+      "patterns": [
+        "(?:^|/)auto$",
+        "(?:^|/)auto-"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "supports_image_detail_original": false,
+      "supports_tools": false,
+      "supports_parallel_tool_calls": false,
+      "reasoning_transport": "none",
+      "reasoning_levels": [],
+      "default_reasoning_level": null,
+      "evidence": []
+    }
+  ],
+  "model_rules": [
+    {
+      "patterns": [
+        "non-reasoning",
+        "no[-_]?thinking"
+      ],
+      "reasoning_transport": "none",
+      "reasoning_levels": [],
+      "default_reasoning_level": null
+    },
+    {
+      "patterns": [
+        "(?:^|/)spark-lite$"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "supports_tools": false,
+      "supports_parallel_tool_calls": false,
+      "reasoning_transport": "none",
+      "reasoning_levels": [],
+      "default_reasoning_level": null,
+      "evidence": [
+        "https://www.xfyun.cn/doc/spark/Web.html"
+      ]
+    },
+    {
+      "patterns": [
+        "claude-.*4-5.*thinking"
+      ],
+      "reasoning_levels": [
+        "high"
+      ],
+      "default_reasoning_level": "high"
+    },
+    {
+      "patterns": [
+        "^glm-.*v(?:ision)?"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true
+    },
+    {
+      "patterns": [
+        "^kimi-k2\\.5"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true
+    },
+    {
+      "patterns": [
+        "^qwen-?3\\.5"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true
+    },
+    {
+      "patterns": [
+        "(?:^|/)grok-4\\.5(?:$|-)"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "reasoning_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://docs.x.ai/developers/models"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)grok-4\\.3(?:$|-)"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "reasoning_levels": [
+        "none",
+        "low",
+        "medium",
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://docs.x.ai/developers/models"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)deepseek-v4-(?:flash|pro)$"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "reasoning_levels": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://api-docs.deepseek.com/guides/thinking_mode",
+        "https://api-docs.deepseek.com/guides/function_calling"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)glm-5\\.2$"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "reasoning_transport": "reasoning_effort",
+      "reasoning_levels": [
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default_reasoning_level": "max",
+      "evidence": [
+        "https://docs.bigmodel.cn/cn/guide/capabilities/thinking",
+        "https://docs.bigmodel.cn/cn/guide/models/text/glm-5.2"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)kimi-k2\\.(?:5|6)$"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "reasoning_transport": "thinking_toggle",
+      "reasoning_levels": [
+        "none",
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://platform.kimi.com/docs/guide/use-kimi-k2-thinking-model"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)kimi-k2\\.7(?:-code)?(?:-highspeed)?$"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": true,
+      "reasoning_transport": "thinking_toggle",
+      "reasoning_levels": [
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://platform.kimi.com/docs/guide/kimi-k2-7-code-quickstart",
+        "https://platform.kimi.com/docs/guide/use-kimi-k2-thinking-model"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)kimi-k3$"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": true,
+      "reasoning_transport": "reasoning_effort_only",
+      "reasoning_levels": [
+        "max"
+      ],
+      "default_reasoning_level": "max",
+      "evidence": [
+        "https://platform.kimi.com/docs/guide/kimi-k3-quickstart",
+        "https://platform.kimi.com/docs/guide/use-thinking-effort"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)qwen-?3\\.5$"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "reasoning_levels": [
+        "none",
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://help.aliyun.com/zh/model-studio/models"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)minimax-m2\\.7$"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "reasoning_transport": "reasoning_split",
+      "reasoning_levels": [
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://platform.minimax.io/docs/api-reference/text-openai-api"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)claude-(?:haiku-4-5-20251001|sonnet-4-5-20250929)(?:-thinking)?$"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "reasoning_transport": "anthropic_thinking",
+      "reasoning_levels": [
+        "none",
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://docs.anthropic.com/en/docs/about-claude/models/overview",
+        "https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)claude-(?:haiku-4-5-20251001|sonnet-4-5-20250929)-thinking$"
+      ],
+      "reasoning_levels": [
+        "high"
+      ],
+      "default_reasoning_level": "high"
+    },
+    {
+      "patterns": [
+        "(?:^|/)gemini-2\\.5-flash$",
+        "(?:^|/)gemini-2\\.5-flash-lite$"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": true,
+      "reasoning_transport": "thinking_level",
+      "reasoning_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://ai.google.dev/gemini-api/docs/thinking",
+        "https://ai.google.dev/gemini-api/docs/function-calling",
+        "https://ai.google.dev/gemini-api/docs/image-understanding"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)mistral-medium-3[.-]5(?:-128b)?$"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": true,
+      "reasoning_transport": "reasoning_effort",
+      "reasoning_levels": [
+        "none",
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://docs.mistral.ai/models",
+        "https://docs.mistral.ai/capabilities/reasoning",
+        "https://docs.mistral.ai/capabilities/function_calling",
+        "https://docs.mistral.ai/capabilities/vision"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)grok-4\\.20-multi-agent(?:-0309)?$"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": true,
+      "reasoning_transport": "reasoning_effort",
+      "reasoning_levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://docs.x.ai/developers/model-capabilities/text/reasoning",
+        "https://docs.x.ai/developers/models"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)grok-4\\.20(?:-0309)?-reasoning$"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": true,
+      "reasoning_transport": "reasoning_effort",
+      "reasoning_levels": [
+        "none",
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://docs.x.ai/developers/models"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)claude-sonnet-5$"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": true,
+      "reasoning_transport": "reasoning_effort",
+      "reasoning_levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/effort"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)claude-sonnet-5-think$"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": true,
+      "reasoning_transport": "reasoning_effort",
+      "reasoning_levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://platform.claude.com/docs/en/about-claude/models/overview",
+        "https://platform.claude.com/docs/en/build-with-claude/effort"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)grok(?:-latest)?$"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true,
+      "supports_tools": true,
+      "supports_parallel_tool_calls": true,
+      "reasoning_transport": "reasoning_effort",
+      "reasoning_levels": [
+        "none",
+        "low",
+        "medium",
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://docs.x.ai/developers/models",
+        "https://docs.x.ai/developers/tools/function-calling",
+        "https://docs.x.ai/developers/tools/vision/image-understanding"
+      ]
+    },
+    {
+      "patterns": [
+        "(?:^|/)(?:composer(?:-2\\.5)?|grok-composer(?:-2\\.5-fast)?|grok-build(?:-0\\.1|-latest)?)$",
+        "(?:^|/)grok-4\\.20-fast$"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "supports_image_detail_original": false,
+      "supports_tools": false,
+      "supports_parallel_tool_calls": false,
+      "reasoning_transport": "none",
+      "reasoning_levels": [],
+      "default_reasoning_level": null,
+      "evidence": [
+        "https://docs.x.ai/developers/models",
+        "https://docs.x.ai/developers/tools/function-calling",
+        "https://docs.x.ai/developers/tools/vision/image-understanding"
+      ]
+    }
+  ],
+  "model_overrides": {
+    "grok-build": {
+      "reasoning_transport": "reasoning_effort",
+      "reasoning_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://x.ai/news/grok-4-5",
+        "https://docs.x.ai/developers/model-capabilities/text/reasoning"
+      ]
+    },
+    "grok-build-latest": {
+      "reasoning_transport": "reasoning_effort",
+      "reasoning_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://x.ai/news/grok-4-5",
+        "https://docs.x.ai/developers/model-capabilities/text/reasoning"
+      ]
+    },
+    "grok-build-0.1": {
+      "reasoning_transport": "none",
+      "reasoning_levels": [
+        "high"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://docs.x.ai/developers/models/grok-build-0.1",
+        "https://docs.x.ai/developers/models"
+      ]
+    },
+    "composer-2.5": {
+      "reasoning_transport": "none",
+      "reasoning_levels": [
+        "none"
+      ],
+      "default_reasoning_level": "none",
+      "evidence": [
+        "https://x.ai/news/composer-2-5",
+        "https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-shell/src/remote/client.rs",
+        "https://github.com/nicepkg/pi-xai-oauth/releases/tag/v0.1.1"
+      ]
+    },
+    "grok-composer": {
+      "reasoning_transport": "none",
+      "reasoning_levels": [
+        "none"
+      ],
+      "default_reasoning_level": "none",
+      "evidence": [
+        "https://x.ai/news/composer-2-5",
+        "https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-shell/src/remote/client.rs",
+        "https://github.com/nicepkg/pi-xai-oauth/releases/tag/v0.1.1"
+      ]
+    },
+    "grok-composer-2.5-fast": {
+      "reasoning_transport": "none",
+      "reasoning_levels": [
+        "none"
+      ],
+      "default_reasoning_level": "none",
+      "evidence": [
+        "https://x.ai/news/composer-2-5",
+        "https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-shell/src/remote/client.rs",
+        "https://github.com/nicepkg/pi-xai-oauth/releases/tag/v0.1.1"
+      ]
+    }
+  },
+  "provider_rules": [],
+  "provider_overrides": {}
+}
