@@ -1829,8 +1829,30 @@ impl ProxyService {
             .await
             .map_err(|e| format!("获取 {app_type_str} Live 备份失败: {e}"))?;
         if let Some(backup) = backup {
-            let config: Value = serde_json::from_str(&backup.original_config)
+            let mut config: Value = serde_json::from_str(&backup.original_config)
                 .map_err(|e| format!("解析 {app_type_str} 备份失败: {e}"))?;
+
+            // Crash recovery restores a historical routing snapshot. The current
+            // Codex auth.json may have been refreshed by a successful ChatGPT
+            // login after that snapshot was created, so it remains authoritative
+            // for OAuth material when preservation is enabled.
+            let preserved_current_codex_oauth = if app_type == &AppType::Codex
+                && crate::settings::preserve_codex_official_auth_on_switch()
+            {
+                match self.read_codex_live() {
+                    Ok(current_live) => {
+                        let backup_auth = config.get("auth").cloned();
+                        Self::preserve_codex_auth_in_backup(&mut config, &current_live, false)?;
+                        backup_auth != config.get("auth").cloned()
+                    }
+                    Err(error) => {
+                        log::warn!("Codex 异常恢复无法读取当前 OAuth，继续使用历史备份: {error}");
+                        false
+                    }
+                }
+            } else {
+                false
+            };
 
             // 备份若是代理占位符（异常历史：上次 stop 失败导致 Live 留在了代理状态，
             // 下次接管时又被错误地备份成"原始 Live"），不能直接用 — 否则 stop 后
@@ -1841,6 +1863,9 @@ impl ProxyService {
                 );
             } else {
                 self.write_live_config_for_app(app_type, &config)?;
+                if preserved_current_codex_oauth {
+                    log::info!("Codex 异常恢复已保留当前 OAuth，仅恢复历史路由配置");
+                }
                 log::info!("{app_type_str} Live 配置已从备份恢复");
                 return Ok(());
             }
@@ -6754,6 +6779,87 @@ requires_openai_auth = true
             restored.contains(pointer.as_str()),
             "restored pointer must still reference the cc-switch generated catalog file"
         );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn codex_crash_restore_preserves_current_oauth_over_stale_backup() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload settings");
+        crate::settings::update_settings(crate::settings::AppSettings {
+            preserve_codex_official_auth_on_switch: true,
+            ..Default::default()
+        })
+        .expect("enable Codex official auth preservation");
+
+        let db = Arc::new(Database::memory().expect("init db"));
+        let service = ProxyService::new(db.clone());
+        let current_oauth = json!({
+            "auth_mode": "chatgpt",
+            "tokens": {
+                "id_token": "current-id-token",
+                "access_token": "current-access-token",
+                "refresh_token": "current-refresh-token"
+            },
+            "last_refresh": "2026-07-28T08:11:00Z"
+        });
+        crate::codex_config::write_codex_live_atomic(
+            &current_oauth,
+            Some(
+                "model_provider = \"custom\"\n\
+                 [model_providers.custom]\n\
+                 name = \"Proxy\"\n\
+                 base_url = \"http://127.0.0.1:15721/v1\"\n\
+                 wire_api = \"responses\"\n",
+            ),
+        )
+        .expect("seed current Codex OAuth and takeover route");
+
+        let stale_backup = json!({
+            "auth": {
+                "auth_mode": "chatgpt",
+                "tokens": {
+                    "id_token": "stale-id-token",
+                    "access_token": "stale-access-token",
+                    "refresh_token": "stale-refresh-token"
+                },
+                "last_refresh": "2026-07-17T10:33:26Z"
+            },
+            "config": "model_provider = \"custom\"\n\
+                       [model_providers.custom]\n\
+                       name = \"Restored Provider\"\n\
+                       base_url = \"https://provider.example/v1\"\n\
+                       wire_api = \"responses\"\n"
+        });
+        db.save_live_backup(
+            "codex",
+            &serde_json::to_string(&stale_backup).expect("serialize stale backup"),
+        )
+        .await
+        .expect("seed stale Codex backup");
+
+        service
+            .restore_live_config_for_app_with_fallback(&AppType::Codex)
+            .await
+            .expect("restore Codex after crash");
+
+        let restored_auth: Value =
+            crate::config::read_json_file(&crate::codex_config::get_codex_auth_path())
+                .expect("read restored auth.json");
+        assert_eq!(
+            restored_auth, current_oauth,
+            "crash recovery must not roll a newer live OAuth login back to the backup snapshot"
+        );
+
+        let restored_config = std::fs::read_to_string(crate::codex_config::get_codex_config_path())
+            .expect("read restored config.toml");
+        assert!(
+            restored_config.contains("https://provider.example/v1"),
+            "crash recovery must still restore the historical provider route"
+        );
+
+        crate::settings::update_settings(crate::settings::AppSettings::default())
+            .expect("reset settings");
     }
 
     /// Regression: a hot-switch during takeover rebuilds the backup from the DB
