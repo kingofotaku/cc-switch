@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "upstream_repository": "https://github.com/farion1231/cc-switch.git",
-  "base_tag": "v3.18.0",
-  "base_commit": "606e7bbe75db7f8285f7a3be006fac22b5d22796",
-  "source_commit": "d8ad24d5",
-  "integration_branch": "codex/model-aware-catalog-v3.18.0",
-  "cc_switch_version": "3.18.0",
+  "base_tag": "v3.19.0",
+  "base_commit": "c0ff89b9b208c092d6ef40b155403dcf290e5767",
+  "source_commit": "307d2b0273c7c2b2a68bb57a22a344bdbeb5a68f",
+  "integration_branch": "codex/model-aware-catalog-v3.19.0",
+  "cc_switch_version": "3.19.0",
   "runtime_change": "model-level-codex-chat-reasoning",
   "binary_policy": "build locally; do not commit binaries or credentials",
   "required_checks": [

@@ -36,9 +36,9 @@ generated or overwritten by the runtime patch.
 
 ## Branch Layout
 
-- Upstream remote: `origin` (`farion1231/cc-switch`)
-- Personal fork remote: `fork` (`kingofotaku/cc-switch`)
-- Working branch: `codex/model-aware-catalog-v3.18.0`
+- Upstream remote: `upstream` (`farion1231/cc-switch`)
+- Personal fork remote: `origin` (`kingofotaku/cc-switch`)
+- Working branch: `codex/model-aware-catalog-v3.19.0`
 - Capability metadata remains generated outside CCS by the Codex catalog repair
   pipeline; this repository only teaches CCS how to consume model-level data.
 
@@ -85,9 +85,10 @@ change. Do not replace the installed executable before the source and tests
 pass.
 
 ```powershell
-git fetch origin --tags
-git switch codex/model-aware-catalog-v3.18.0
-git merge --no-ff v3.18.0
+git remote add upstream https://github.com/farion1231/cc-switch.git
+git fetch upstream --tags
+git switch codex/model-aware-catalog-v3.19.0
+git merge --no-ff v3.19.0
 ```
 
 Before applying the merge, inspect the upstream diff in the four runtime
