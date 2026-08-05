@@ -1260,6 +1260,7 @@
     "title": "API エンドポイント管理",
     "endpoints": "エンドポイント",
     "autoSelect": "自動選択",
+    "failover": "フェイルオーバー",
     "testSpeed": "テスト",
     "testing": "テスト中",
     "addEndpointPlaceholder": "https://api.example.com",

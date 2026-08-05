@@ -1260,6 +1260,7 @@
     "title": "API Endpoint Management",
     "endpoints": "endpoints",
     "autoSelect": "Auto Select",
+    "failover": "Failover",
     "testSpeed": "Test",
     "testing": "Testing",
     "addEndpointPlaceholder": "https://api.example.com",

@@ -206,17 +206,66 @@ pub fn should_convert_codex_responses_to_anthropic(provider: &Provider, endpoint
     ) && codex_provider_uses_anthropic(provider)
 }
 
+/// Whether this Codex provider's upstream is a native OpenAI Responses API.
+///
+/// Mirrors [`resolve_codex_catalog_tool_profile`]: explicit `apiFormat` wins,
+/// then the provider TOML's `wire_api` is consulted. Managed xAI OAuth is
+/// pinned to native Responses by its own invariant and is handled separately.
+fn provider_uses_native_responses_upstream(provider: &Provider) -> bool {
+    let declared_format = provider
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.api_format.as_deref())
+        .or_else(|| {
+            provider
+                .settings_config
+                .get("api_format")
+                .and_then(|v| v.as_str())
+        })
+        .or_else(|| {
+            provider
+                .settings_config
+                .get("apiFormat")
+                .and_then(|v| v.as_str())
+        });
+    if let Some(format) = declared_format {
+        return matches!(
+            format.trim().to_ascii_lowercase().as_str(),
+            "responses" | "openai_responses" | "openai-responses"
+        );
+    }
+
+    provider
+        .settings_config
+        .get("config")
+        .and_then(|v| v.as_str())
+        .and_then(extract_codex_wire_api_from_toml)
+        .is_some_and(|wire_api| {
+            matches!(
+                wire_api.trim().to_ascii_lowercase().as_str(),
+                "responses" | "openai_responses" | "openai-responses"
+            )
+        })
+}
+
 /// Whether a native-Responses Codex upstream needs Codex `namespace`/plugin
 /// tool declarations flattened before forwarding.
 ///
 /// Codex 0.142+ emits ChatGPT-backend-private `{"type":"namespace",…}` tool
 /// shapes that strict third-party Responses gateways reject with
-/// `422 unknown variant "namespace"`. Only providers whose upstream is such a
-/// strict native gateway need the flatten+restore pass; the Chat/Anthropic
-/// transform paths already unwrap namespaces on their own. Currently that is the
-/// managed xAI (Grok) OAuth provider — the first strict gateway cc-switch hit.
+/// `422 unknown variant "namespace"` (or silently ignore, as DeepSeek native
+/// gateways do). Only providers whose upstream is such a strict native gateway
+/// need the flatten+restore pass; the Chat/Anthropic transform paths already
+/// unwrap namespaces on their own. OpenAI's official route understands
+/// namespace tools natively, so it is excluded.
 pub fn provider_needs_responses_namespace_flatten(provider: &Provider) -> bool {
-    provider.is_xai_oauth()
+    if provider.is_xai_oauth() {
+        return true;
+    }
+    if is_codex_official_provider(provider) {
+        return false;
+    }
+    provider_uses_native_responses_upstream(provider)
 }
 
 /// The single built-in official Codex provider.  Unlike managed Codex OAuth
@@ -1877,7 +1926,7 @@ wire_api = "responses"
 
     #[test]
     fn namespace_flatten_gate_only_fires_for_xai_oauth() {
-        // xAI OAuth: strict native gateway → needs namespace flattening.
+        // xAI OAuth: strict native gateway -> needs namespace flattening.
         let mut xai = create_provider(json!({ "auth": {}, "config": "" }));
         xai.meta = Some(crate::provider::ProviderMeta {
             provider_type: Some("xai_oauth".to_string()),
@@ -1885,11 +1934,43 @@ wire_api = "responses"
         });
         assert!(provider_needs_responses_namespace_flatten(&xai));
 
-        // A plain third-party API-key Codex provider must not be flattened.
-        let plain = create_provider(json!({
+        // DeepSeek-style API-key provider declared as native Responses via meta.
+        let mut deepseek_meta = create_provider(json!({
             "auth": { "OPENAI_API_KEY": "sk-x" },
-            "config": "base_url = \"https://api.x.ai/v1\"\nwire_api = \"responses\""
+            "config": "base_url = \"http://relay.example/v1\"\nwire_api = \"responses\""
         }));
-        assert!(!provider_needs_responses_namespace_flatten(&plain));
+        deepseek_meta.meta = Some(crate::provider::ProviderMeta {
+            api_format: Some("openai_responses".to_string()),
+            ..Default::default()
+        });
+        assert!(provider_needs_responses_namespace_flatten(&deepseek_meta));
+
+        // Same native wire API declared only in TOML must also be flattened.
+        let deepseek_toml = create_provider(json!({
+            "auth": { "OPENAI_API_KEY": "sk-x" },
+            "config": "base_url = \"http://relay.example/v1\"\nwire_api = \"responses\""
+        }));
+        assert!(provider_needs_responses_namespace_flatten(&deepseek_toml));
+
+        // Chat-completions and no-config providers do not use the native pass.
+        let chat = create_provider(json!({
+            "auth": { "OPENAI_API_KEY": "sk-x" },
+            "config": "base_url = \"https://api.example/v1\"\nwire_api = \"chat\""
+        }));
+        assert!(!provider_needs_responses_namespace_flatten(&chat));
+        assert!(!provider_needs_responses_namespace_flatten(&create_provider(
+            json!({ "auth": {}, "config": "" })
+        )));
+    }
+
+    #[test]
+    fn namespace_flatten_gate_skips_official_openai_route() {
+        let mut provider = create_provider(json!({
+            "auth": {},
+            "config": "base_url = \"https://chatgpt.com/backend-api/codex\"\nwire_api = \"responses\""
+        }));
+        provider.id = crate::database::CODEX_OFFICIAL_PROVIDER_ID.to_string();
+        provider.category = Some("official".to_string());
+        assert!(!provider_needs_responses_namespace_flatten(&provider));
     }
 }

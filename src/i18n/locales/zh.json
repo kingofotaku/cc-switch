@@ -1260,6 +1260,7 @@
     "title": "请求地址管理",
     "endpoints": "个端点",
     "autoSelect": "自动选择",
+    "failover": "故障切换",
     "testSpeed": "测速",
     "testing": "测速中",
     "addEndpointPlaceholder": "https://api.example.com",

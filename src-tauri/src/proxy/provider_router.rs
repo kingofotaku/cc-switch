@@ -29,6 +29,16 @@ impl ProviderRouter {
         }
     }
 
+    pub fn persist_codex_provider_endpoint(
+        &self,
+        provider_id: &str,
+        expected_current: &str,
+        new_endpoint: &str,
+    ) -> Result<bool, AppError> {
+        self.db
+            .persist_codex_provider_endpoint(provider_id, expected_current, new_endpoint)
+    }
+
     /// 选择可用的供应商（支持故障转移）
     ///
     /// 返回按优先级排序的可用供应商列表：
@@ -88,7 +98,8 @@ impl ProviderRouter {
                 .or_else(|| self.db.get_current_provider(app_type).ok().flatten());
 
             if let Some(current_id) = current_id {
-                if let Some(current) = self.db.get_provider_by_id(&current_id, app_type)? {
+                let all_providers = self.db.get_all_providers(app_type)?;
+                if let Some(current) = all_providers.get(&current_id).cloned() {
                     total_providers = 1;
                     result.push(current);
                 }
@@ -358,6 +369,35 @@ mod tests {
 
         assert_eq!(providers.len(), 1);
         assert_eq!(providers[0].id, "a");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_failover_disabled_hydrates_current_provider_custom_endpoints() {
+        let _home = TempHome::new();
+        let db = Arc::new(Database::memory().unwrap());
+        let provider = Provider::with_id(
+            "codex-a".to_string(),
+            "Codex A".to_string(),
+            json!({"base_url": "https://primary.example.com/v1"}),
+            None,
+        );
+
+        db.save_provider("codex", &provider).unwrap();
+        db.add_custom_endpoint("codex", "codex-a", "https://fallback.example.com/v1")
+            .unwrap();
+        db.set_current_provider("codex", "codex-a").unwrap();
+
+        let router = ProviderRouter::new(db);
+        let providers = router.select_providers("codex").await.unwrap();
+
+        assert_eq!(providers.len(), 1);
+        assert!(providers[0]
+            .meta
+            .as_ref()
+            .expect("provider meta")
+            .custom_endpoints
+            .contains_key("https://fallback.example.com/v1"));
     }
 
     #[tokio::test]

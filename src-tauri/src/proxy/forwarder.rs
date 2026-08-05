@@ -6,6 +6,9 @@ use super::hyper_client::ProxyResponse;
 use super::{
     body_filter::filter_private_params_with_whitelist,
     content_encoding::{decompress_body, get_content_encoding},
+    endpoint_failover::{
+        build_endpoint_attempt_plan, is_endpoint_failover_error, CURRENT_ENDPOINT_ATTEMPTS,
+    },
     error::*,
     failover_switch::FailoverSwitchManager,
     json_canonical::{canonicalize_value, short_value_hash},
@@ -1123,8 +1126,150 @@ impl RequestForwarder {
         extensions: &Extensions,
         adapter: &dyn ProviderAdapter,
     ) -> Result<(ProxyResponse, Option<String>, Option<String>), ProxyError> {
+        let endpoint_failover_enabled = matches!(app_type, AppType::Codex)
+            && provider
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.endpoint_failover_enabled)
+                == Some(true)
+            && !super::providers::is_codex_official_provider(provider)
+            && !provider.is_codex_oauth()
+            && !provider.is_xai_oauth()
+            && provider
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.provider_type.as_deref())
+                != Some("github_copilot");
+
+        if !endpoint_failover_enabled {
+            return self
+                .forward_once(
+                    app_type, method, provider, endpoint, body, headers, extensions, adapter, None,
+                )
+                .await;
+        }
+
+        let current_endpoint = adapter.extract_base_url(provider)?;
+        let attempts = build_endpoint_attempt_plan(
+            &current_endpoint,
+            provider
+                .meta
+                .as_ref()
+                .into_iter()
+                .flat_map(|meta| meta.custom_endpoints.values())
+                .map(|candidate| (candidate.url.as_str(), candidate.added_at)),
+        );
+
+        // A provider with no distinct fallback keeps the historical single-attempt path.
+        if attempts.len() <= CURRENT_ENDPOINT_ATTEMPTS {
+            return self
+                .forward_once(
+                    app_type, method, provider, endpoint, body, headers, extensions, adapter, None,
+                )
+                .await;
+        }
+
+        let current_endpoint = current_endpoint.trim().trim_end_matches('/').to_string();
+        let fallback_count = attempts.len().saturating_sub(CURRENT_ENDPOINT_ATTEMPTS);
+        let mut last_error = None;
+
+        for (attempt_index, attempt) in attempts.iter().enumerate() {
+            if attempt_index == 1 {
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            } else if attempt_index == 2 {
+                tokio::time::sleep(std::time::Duration::from_millis(900)).await;
+            }
+
+            match self
+                .forward_once(
+                    app_type,
+                    method,
+                    provider,
+                    endpoint,
+                    body,
+                    headers,
+                    extensions,
+                    adapter,
+                    Some(&attempt.url),
+                )
+                .await
+            {
+                Ok(result) => {
+                    if attempt.url != current_endpoint {
+                        match self.router.persist_codex_provider_endpoint(
+                            &provider.id,
+                            &current_endpoint,
+                            &attempt.url,
+                        ) {
+                            Ok(true) => log::info!(
+                                "[codex] [EP-FO-003] Provider {} endpoint failover succeeded and was persisted",
+                                provider.name
+                            ),
+                            Ok(false) => log::debug!(
+                                "[codex] [EP-FO-004] Provider {} endpoint changed concurrently; skipped stale persistence",
+                                provider.name
+                            ),
+                            Err(error) => log::warn!(
+                                "[codex] [EP-FO-005] Provider {} endpoint failover succeeded but persistence failed: {}",
+                                provider.name,
+                                error
+                            ),
+                        }
+                    }
+                    return Ok(result);
+                }
+                Err(error) if is_endpoint_failover_error(&error) => {
+                    if attempt_index + 1 < CURRENT_ENDPOINT_ATTEMPTS {
+                        log::warn!(
+                            "[codex] [EP-FO-001] Provider {} current endpoint failed ({}/{}); retrying same endpoint: {}",
+                            provider.name,
+                            attempt_index + 1,
+                            CURRENT_ENDPOINT_ATTEMPTS,
+                            error
+                        );
+                    } else if attempt_index + 1 == CURRENT_ENDPOINT_ATTEMPTS {
+                        log::warn!(
+                            "[codex] [EP-FO-002] Provider {} current endpoint failed {} times; trying {} fallback endpoint(s)",
+                            provider.name,
+                            CURRENT_ENDPOINT_ATTEMPTS,
+                            fallback_count
+                        );
+                    } else {
+                        log::warn!(
+                            "[codex] [EP-FO-006] Provider {} fallback endpoint attempt {}/{} failed: {}",
+                            provider.name,
+                            attempt_index + 1 - CURRENT_ENDPOINT_ATTEMPTS,
+                            fallback_count,
+                            error
+                        );
+                    }
+                    last_error = Some(error);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
+        Err(last_error.unwrap_or(ProxyError::MaxRetriesExceeded))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn forward_once(
+        &self,
+        app_type: &AppType,
+        method: &http::Method,
+        provider: &Provider,
+        endpoint: &str,
+        body: &Value,
+        headers: &axum::http::HeaderMap,
+        extensions: &Extensions,
+        adapter: &dyn ProviderAdapter,
+        base_url_override: Option<&str>,
+    ) -> Result<(ProxyResponse, Option<String>, Option<String>), ProxyError> {
         // 使用适配器提取 base_url
-        let mut base_url = adapter.extract_base_url(provider)?;
+        let mut base_url = match base_url_override {
+            Some(base_url) => base_url.trim().trim_end_matches('/').to_string(),
+            None => adapter.extract_base_url(provider)?,
+        };
 
         let is_full_url = provider
             .meta
@@ -3576,6 +3721,7 @@ mod tests {
     use http::StatusCode;
     use serde_json::json;
     use std::collections::HashMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     fn test_provider_with_type(provider_type: Option<&str>) -> Provider {
@@ -3604,6 +3750,14 @@ mod tests {
     ) -> RequestForwarder {
         let db = Arc::new(Database::memory().expect("memory db"));
 
+        test_forwarder_with_db(db, non_streaming_timeout, streaming_first_byte_timeout)
+    }
+
+    fn test_forwarder_with_db(
+        db: Arc<Database>,
+        non_streaming_timeout: Duration,
+        streaming_first_byte_timeout: Duration,
+    ) -> RequestForwarder {
         RequestForwarder {
             router: Arc::new(ProviderRouter::new(db.clone())),
             status: Arc::new(RwLock::new(ProxyStatus::default())),
@@ -3622,6 +3776,175 @@ mod tests {
             streaming_first_byte_timeout,
             max_attempts: 1,
         }
+    }
+
+    async fn spawn_test_upstream(
+        status: StatusCode,
+        response_body: Value,
+        request_count: Arc<AtomicUsize>,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        let app = axum::Router::new().fallback(axum::routing::any(move || {
+            let request_count = request_count.clone();
+            let response_body = response_body.clone();
+            async move {
+                request_count.fetch_add(1, Ordering::SeqCst);
+                (status, axum::Json(response_body))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test upstream");
+        let address = listener.local_addr().expect("test upstream address");
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("serve test upstream");
+        });
+        (format!("http://{address}"), task)
+    }
+
+    #[tokio::test]
+    async fn codex_endpoint_failover_retries_current_three_times_then_persists_fallback() {
+        let primary_count = Arc::new(AtomicUsize::new(0));
+        let fallback_count = Arc::new(AtomicUsize::new(0));
+        let (primary_url, primary_task) = spawn_test_upstream(
+            StatusCode::BAD_GATEWAY,
+            json!({"error": {"message": "temporary gateway failure"}}),
+            primary_count.clone(),
+        )
+        .await;
+        let (fallback_url, fallback_task) = spawn_test_upstream(
+            StatusCode::OK,
+            json!({
+                "id": "resp_test",
+                "object": "response",
+                "status": "completed",
+                "model": "gpt-test",
+                "output": [],
+                "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}
+            }),
+            fallback_count.clone(),
+        )
+        .await;
+
+        let db = Arc::new(Database::memory().expect("memory db"));
+        let mut provider = Provider::with_id(
+            "endpoint-runtime-provider".to_string(),
+            "Endpoint Runtime".to_string(),
+            json!({
+                "base_url": primary_url,
+                "auth": {"OPENAI_API_KEY": "test-key"}
+            }),
+            None,
+        );
+        let mut meta = crate::provider::ProviderMeta {
+            endpoint_failover_enabled: Some(true),
+            ..Default::default()
+        };
+        meta.custom_endpoints.insert(
+            fallback_url.clone(),
+            crate::settings::CustomEndpoint {
+                url: fallback_url.clone(),
+                added_at: 1,
+                last_used: None,
+            },
+        );
+        provider.meta = Some(meta);
+        db.save_provider(AppType::Codex.as_str(), &provider)
+            .expect("save runtime provider");
+        db.set_current_provider(AppType::Codex.as_str(), &provider.id)
+            .expect("set current provider");
+        let provider = db
+            .get_all_providers(AppType::Codex.as_str())
+            .expect("load providers")
+            .get(&provider.id)
+            .cloned()
+            .expect("runtime provider");
+        let forwarder =
+            test_forwarder_with_db(db.clone(), Duration::from_secs(5), Duration::from_secs(5));
+        let adapter = get_adapter(&AppType::Codex);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            http::header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+
+        let result = forwarder
+            .forward(
+                &AppType::Codex,
+                &http::Method::POST,
+                &provider,
+                "/v1/responses",
+                &json!({
+                    "model": "gpt-test",
+                    "input": "hello",
+                    "stream": false
+                }),
+                &headers,
+                &Extensions::new(),
+                adapter.as_ref(),
+            )
+            .await;
+
+        primary_task.abort();
+        fallback_task.abort();
+        result.expect("fallback endpoint should succeed");
+        assert_eq!(primary_count.load(Ordering::SeqCst), 3);
+        assert_eq!(fallback_count.load(Ordering::SeqCst), 1);
+        let saved = db
+            .get_all_providers(AppType::Codex.as_str())
+            .expect("load saved provider")
+            .get(&provider.id)
+            .cloned()
+            .expect("saved provider");
+        assert_eq!(
+            saved.settings_config["base_url"].as_str(),
+            Some(fallback_url.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn codex_endpoint_failover_does_not_retry_without_a_distinct_fallback() {
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let (primary_url, primary_task) = spawn_test_upstream(
+            StatusCode::BAD_GATEWAY,
+            json!({"error": {"message": "gateway failure"}}),
+            request_count.clone(),
+        )
+        .await;
+        let db = Arc::new(Database::memory().expect("memory db"));
+        let mut provider = Provider::with_id(
+            "single-endpoint-provider".to_string(),
+            "Single Endpoint".to_string(),
+            json!({
+                "base_url": primary_url,
+                "auth": {"OPENAI_API_KEY": "test-key"}
+            }),
+            None,
+        );
+        provider.meta = Some(crate::provider::ProviderMeta {
+            endpoint_failover_enabled: Some(true),
+            ..Default::default()
+        });
+        let forwarder = test_forwarder_with_db(db, Duration::from_secs(5), Duration::from_secs(5));
+        let adapter = get_adapter(&AppType::Codex);
+
+        let result = forwarder
+            .forward(
+                &AppType::Codex,
+                &http::Method::POST,
+                &provider,
+                "/v1/responses",
+                &json!({"model": "gpt-test", "input": "hello", "stream": false}),
+                &HeaderMap::new(),
+                &Extensions::new(),
+                adapter.as_ref(),
+            )
+            .await;
+
+        primary_task.abort();
+        assert!(result.is_err());
+        assert_eq!(request_count.load(Ordering::SeqCst), 1);
     }
 
     #[test]
@@ -4821,12 +5144,26 @@ mod tests {
     fn prevention_replaces_when_all_switches_on_and_model_in_heuristic_list() {
         let fwd = forwarder_with_rectifier(RectifierConfig::default());
         let provider = provider_with_settings(json!({}));
-        let mut body = body_with_image("deepseek-v4-pro");
+        let mut body = body_with_image("deepseek-chat");
 
         let replaced = fwd.apply_media_prevention(&mut body, &provider);
 
         assert_eq!(replaced, 1, "默认全开 + 名单内模型应预替换");
         assert_eq!(body["messages"][0]["content"][0]["type"], "text");
+    }
+
+    #[test]
+    fn prevention_applied_for_deepseek_v4_without_explicit_declaration() {
+        let fwd = forwarder_with_rectifier(RectifierConfig::default());
+        let provider = provider_with_settings(json!({}));
+        for model in ["deepseek-v4-pro", "deepseek-v4-flash"] {
+            let mut body = body_with_image(model);
+
+            let replaced = fwd.apply_media_prevention(&mut body, &provider);
+
+            assert_eq!(replaced, 1, "V4 无显式声明时应按 text-only 处理");
+            assert_eq!(body["messages"][0]["content"][0]["type"], "text");
+        }
     }
 
     #[test]
@@ -4837,7 +5174,7 @@ mod tests {
             ..RectifierConfig::default()
         });
         let provider = provider_with_settings(json!({}));
-        let mut body = body_with_image("deepseek-v4-pro");
+        let mut body = body_with_image("deepseek-chat");
 
         let replaced = fwd.apply_media_prevention(&mut body, &provider);
 
@@ -4852,7 +5189,7 @@ mod tests {
             ..RectifierConfig::default()
         });
         let provider = provider_with_settings(json!({}));
-        let mut body = body_with_image("deepseek-v4-pro");
+        let mut body = body_with_image("deepseek-chat");
 
         assert_eq!(fwd.apply_media_prevention(&mut body, &provider), 0);
         assert_eq!(body["messages"][0]["content"][0]["type"], "image");
@@ -4868,7 +5205,7 @@ mod tests {
 
         // (a) 名单内模型、无显式声明 → 不再预替换
         let bare_provider = provider_with_settings(json!({}));
-        let mut list_body = body_with_image("deepseek-v4-pro");
+        let mut list_body = body_with_image("deepseek-chat");
         assert_eq!(
             fwd.apply_media_prevention(&mut list_body, &bare_provider),
             0,

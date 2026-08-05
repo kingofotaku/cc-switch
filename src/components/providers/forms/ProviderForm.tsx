@@ -318,6 +318,10 @@ function ProviderFormFull({
   const [endpointAutoSelect, setEndpointAutoSelect] = useState<boolean>(
     () => initialData?.meta?.endpointAutoSelect ?? true,
   );
+  const [endpointFailoverEnabled, setEndpointFailoverEnabled] =
+    useState<boolean>(
+      () => initialData?.meta?.endpointFailoverEnabled ?? false,
+    );
   const supportsFullUrl = appId === "claude" || appId === "codex";
   const [localIsFullUrl, setLocalIsFullUrl] = useState<boolean>(() => {
     if (!supportsFullUrl) return false;
@@ -356,6 +360,9 @@ function ProviderFormFull({
       setDraftCustomEndpoints([]);
     }
     setEndpointAutoSelect(initialData?.meta?.endpointAutoSelect ?? true);
+    setEndpointFailoverEnabled(
+      initialData?.meta?.endpointFailoverEnabled ?? false,
+    );
     setLocalIsFullUrl(
       supportsFullUrl ? (initialData?.meta?.isFullUrl ?? false) : false,
     );
@@ -1560,6 +1567,8 @@ function ProviderFormFull({
               ? useGeminiCommonConfigFlag
               : undefined,
       endpointAutoSelect,
+      endpointFailoverEnabled:
+        appId === "codex" ? endpointFailoverEnabled : undefined,
       claudeDesktopMode: undefined,
       // 保存 providerType（用于识别 Copilot / Codex OAuth 等特殊供应商）
       providerType,
@@ -2311,6 +2320,8 @@ function ProviderFormFull({
               }
               autoSelect={endpointAutoSelect}
               onAutoSelectChange={setEndpointAutoSelect}
+              failoverEnabled={endpointFailoverEnabled}
+              onFailoverEnabledChange={setEndpointFailoverEnabled}
               codexModel={codexModel}
               onModelChange={handleCodexModelChange}
               apiFormat={localCodexApiFormat}

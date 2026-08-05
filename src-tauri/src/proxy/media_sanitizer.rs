@@ -487,7 +487,7 @@ mod tests {
     fn confirmed_text_only_models_replace_images_before_send() {
         let provider = provider(json!({}));
         let mut body = json!({
-            "model": "deepseek/deepseek-v4-pro",
+            "model": "deepseek/deepseek-chat",
             "messages": [{
                 "role": "user",
                 "content": [
@@ -509,7 +509,7 @@ mod tests {
     fn confirmed_text_only_models_replace_chat_image_url_before_send() {
         let provider = provider(json!({}));
         let mut body = json!({
-            "model": "deepseek-v4-flash",
+            "model": "deepseek-chat",
             "messages": [{
                 "role": "user",
                 "content": [
@@ -533,7 +533,7 @@ mod tests {
     fn confirmed_text_only_models_replace_codex_input_image_before_send() {
         let provider = provider(json!({}));
         let mut body = json!({
-            "model": "deepseek-v4-flash",
+            "model": "deepseek-chat",
             "input": [{
                 "role": "user",
                 "content": [
@@ -551,6 +551,27 @@ mod tests {
             body["input"][0]["content"][1]["text"],
             UNSUPPORTED_IMAGE_MARKER
         );
+    }
+
+    #[test]
+    fn deepseek_v4_models_replace_images_without_explicit_declaration() {
+        let provider = provider(json!({}));
+        for model in ["deepseek-v4-pro", "deepseek-v4-flash"] {
+            let mut body = json!({
+                "model": model,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        { "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": "abc" } }
+                    ]
+                }]
+            });
+
+            let count = replace_images_for_text_only_model(&mut body, &provider, true);
+
+            assert_eq!(count, 1, "V4 无显式声明时应按 text-only 处理");
+            assert_eq!(body["messages"][0]["content"][0]["type"], "text");
+        }
     }
 
     #[test]
@@ -1264,7 +1285,7 @@ mod tests {
         // allow_heuristic = false：内置列表不再预测性剥图，避免误判多模态模型时静默丢图。
         let provider = provider(json!({}));
         let mut body = json!({
-            "model": "deepseek/deepseek-v4-pro",
+            "model": "deepseek/deepseek-chat",
             "messages": [{
                 "role": "user",
                 "content": [

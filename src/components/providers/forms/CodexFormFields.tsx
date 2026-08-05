@@ -79,6 +79,8 @@ interface CodexFormFieldsProps {
   onCustomEndpointsChange?: (endpoints: string[]) => void;
   autoSelect: boolean;
   onAutoSelectChange: (checked: boolean) => void;
+  failoverEnabled?: boolean;
+  onFailoverEnabledChange?: (checked: boolean) => void;
 
   // Default model (config.toml top-level `model`)
   codexModel?: string;
@@ -187,6 +189,8 @@ export function CodexFormFields({
   onCustomEndpointsChange,
   autoSelect,
   onAutoSelectChange,
+  failoverEnabled = false,
+  onFailoverEnabledChange,
   codexModel = "",
   onModelChange,
   apiFormat,
@@ -1098,6 +1102,8 @@ export function CodexFormFields({
           onClose={() => onEndpointModalToggle(false)}
           autoSelect={autoSelect}
           onAutoSelectChange={onAutoSelectChange}
+          failoverEnabled={failoverEnabled}
+          onFailoverEnabledChange={onFailoverEnabledChange}
           onCustomEndpointsChange={onCustomEndpointsChange}
         />
       )}

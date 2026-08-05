@@ -330,6 +330,75 @@ impl Database {
         Ok(())
     }
 
+    /// Persist a successful Codex endpoint failover without touching live Codex config.
+    ///
+    /// The update is compare-and-swap guarded by `expected_current`, so concurrent
+    /// requests cannot overwrite a newer manual or automatic endpoint selection.
+    pub fn persist_codex_provider_endpoint(
+        &self,
+        provider_id: &str,
+        expected_current: &str,
+        new_endpoint: &str,
+    ) -> Result<bool, AppError> {
+        let expected_current = expected_current.trim().trim_end_matches('/');
+        let new_endpoint = new_endpoint.trim().trim_end_matches('/');
+        if expected_current.is_empty() || new_endpoint.is_empty() {
+            return Err(AppError::Database(
+                "Codex endpoint failover requires non-empty URLs".to_string(),
+            ));
+        }
+
+        let mut conn = lock_conn!(self.conn);
+        let tx = conn
+            .transaction()
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        let settings_json: String = tx
+            .query_row(
+                "SELECT settings_config FROM providers WHERE id = ?1 AND app_type = 'codex'",
+                params![provider_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        let mut settings_config: serde_json::Value = serde_json::from_str(&settings_json)
+            .map_err(|e| AppError::Database(format!("Invalid provider settings_config: {e}")))?;
+        let previous = crate::codex_config::update_provider_settings_base_url(
+            &mut settings_config,
+            new_endpoint,
+        )
+        .map_err(AppError::Database)?;
+
+        if previous.as_deref() != Some(expected_current) {
+            return Ok(false);
+        }
+
+        let now = chrono::Utc::now().timestamp_millis();
+        for endpoint in [expected_current, new_endpoint] {
+            tx.execute(
+                "INSERT INTO provider_endpoints (provider_id, app_type, url, added_at)
+                 SELECT ?1, 'codex', ?2, ?3
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM provider_endpoints
+                     WHERE provider_id = ?1 AND app_type = 'codex' AND url = ?2
+                 )",
+                params![provider_id, endpoint, now],
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        }
+
+        tx.execute(
+            "UPDATE providers SET settings_config = ?1 WHERE id = ?2 AND app_type = 'codex'",
+            params![
+                serde_json::to_string(&settings_config).map_err(|e| {
+                    AppError::Database(format!("Failed to serialize settings_config: {e}"))
+                })?,
+                provider_id,
+            ],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+        tx.commit().map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(true)
+    }
+
     pub fn add_custom_endpoint(
         &self,
         app_type: &str,
@@ -824,5 +893,82 @@ mod ensure_official_seed_tests {
         let result =
             db.ensure_official_seed_by_id(CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID, AppType::Claude);
         assert!(result.is_err(), "(id, app_type) mismatch should be Err");
+    }
+}
+
+#[cfg(test)]
+mod endpoint_persistence_tests {
+    use crate::app_config::AppType;
+    use crate::codex_config::extract_codex_base_url;
+    use crate::database::Database;
+    use crate::provider::Provider;
+    use serde_json::json;
+
+    #[test]
+    fn successful_endpoint_switch_is_atomic_and_preserves_previous_endpoint() {
+        let db = Database::memory().expect("memory db");
+        let provider_id = "endpoint-failover-provider";
+        let old_endpoint = "https://old.example.com/v1";
+        let new_endpoint = "https://new.example.com/v1";
+        let config = format!(
+            "model_provider = \"custom\"\n[model_providers.custom]\nbase_url = \"{old_endpoint}\"\nwire_api = \"responses\"\n"
+        );
+        let provider = Provider::with_id(
+            provider_id.to_string(),
+            "Endpoint Failover".to_string(),
+            json!({"config": config, "auth": {"OPENAI_API_KEY": "keep-me"}}),
+            None,
+        );
+        db.save_provider(AppType::Codex.as_str(), &provider)
+            .expect("save provider");
+        db.add_custom_endpoint(AppType::Codex.as_str(), provider_id, new_endpoint)
+            .expect("add fallback endpoint");
+
+        let changed = db
+            .persist_codex_provider_endpoint(provider_id, old_endpoint, new_endpoint)
+            .expect("persist endpoint");
+        assert!(changed);
+
+        let saved = db
+            .get_all_providers(AppType::Codex.as_str())
+            .expect("query providers")
+            .get(provider_id)
+            .cloned()
+            .expect("provider exists");
+        let saved_config = saved.settings_config["config"]
+            .as_str()
+            .expect("config string");
+        assert_eq!(
+            extract_codex_base_url(saved_config).as_deref(),
+            Some(new_endpoint)
+        );
+        assert_eq!(saved.settings_config["auth"]["OPENAI_API_KEY"], "keep-me");
+        let endpoints = saved.meta.expect("provider meta").custom_endpoints;
+        assert!(endpoints.contains_key(old_endpoint));
+        assert!(endpoints.contains_key(new_endpoint));
+
+        let stale = db
+            .persist_codex_provider_endpoint(
+                provider_id,
+                old_endpoint,
+                "https://stale.example.com/v1",
+            )
+            .expect("stale compare-and-swap");
+        assert!(!stale);
+        let saved = db
+            .get_all_providers(AppType::Codex.as_str())
+            .expect("query providers")
+            .get(provider_id)
+            .cloned()
+            .expect("provider exists");
+        assert_eq!(
+            extract_codex_base_url(
+                saved.settings_config["config"]
+                    .as_str()
+                    .expect("config string")
+            )
+            .as_deref(),
+            Some(new_endpoint)
+        );
     }
 }

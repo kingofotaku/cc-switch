@@ -1261,6 +1261,7 @@
     "title": "請求位址管理",
     "endpoints": "個端點",
     "autoSelect": "自動選擇",
+    "failover": "故障切換",
     "testSpeed": "測速",
     "testing": "測速中",
     "addEndpointPlaceholder": "https://api.example.com",

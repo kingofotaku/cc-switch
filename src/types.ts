@@ -182,6 +182,8 @@ export interface ProviderMeta {
   usage_script?: UsageScript;
   // 请求地址管理：测速后自动选择最佳端点
   endpointAutoSelect?: boolean;
+  // 请求失败时自动轮换同一 Codex 供应商的备用端点
+  endpointFailoverEnabled?: boolean;
   // 是否为官方合作伙伴
   isPartner?: boolean;
   // 合作伙伴促销 key（用于后端识别 PackyCode 等）

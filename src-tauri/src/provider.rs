@@ -435,6 +435,12 @@ pub struct ProviderMeta {
     /// 请求地址管理：测速后自动选择最佳端点
     #[serde(rename = "endpointAutoSelect", skip_serializing_if = "Option::is_none")]
     pub endpoint_auto_select: Option<bool>,
+    /// 请求失败时在同一 Codex 供应商的自定义端点之间自动切换
+    #[serde(
+        rename = "endpointFailoverEnabled",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub endpoint_failover_enabled: Option<bool>,
     /// 合作伙伴标记（前端使用 isPartner，保持字段名一致）
     #[serde(rename = "isPartner", skip_serializing_if = "Option::is_none")]
     pub is_partner: Option<bool>,

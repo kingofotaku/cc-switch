@@ -37,6 +37,8 @@ interface EndpointSpeedTestProps {
   onClose: () => void;
   autoSelect: boolean;
   onAutoSelectChange: (checked: boolean) => void;
+  failoverEnabled?: boolean;
+  onFailoverEnabledChange?: (checked: boolean) => void;
   // 新建模式：当自定义端点列表变化时回传（仅包含 isCustom 的条目）
   // 编辑模式：不使用此回调，端点直接保存到后端
   onCustomEndpointsChange?: (urls: string[]) => void;
@@ -94,6 +96,8 @@ const EndpointSpeedTest: React.FC<EndpointSpeedTestProps> = ({
   onClose,
   autoSelect,
   onAutoSelectChange,
+  failoverEnabled,
+  onFailoverEnabledChange,
   onCustomEndpointsChange,
 }) => {
   const { t } = useTranslation();
@@ -503,6 +507,19 @@ const EndpointSpeedTest: React.FC<EndpointSpeedTestProps> = ({
               />
               {t("endpointTest.autoSelect")}
             </label>
+            {onFailoverEnabledChange && (
+              <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+                <input
+                  type="checkbox"
+                  checked={failoverEnabled ?? false}
+                  onChange={(event) => {
+                    onFailoverEnabledChange(event.target.checked);
+                  }}
+                  className="h-3.5 w-3.5 rounded border-border-default bg-background text-primary focus:ring-2 focus:ring-primary/20"
+                />
+                {t("endpointTest.failover")}
+              </label>
+            )}
             <Button
               type="button"
               onClick={runSpeedTest}

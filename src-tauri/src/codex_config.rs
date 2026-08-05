@@ -370,6 +370,60 @@ pub fn extract_codex_base_url(config_text: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
+fn normalize_provider_base_url(value: &str) -> Option<String> {
+    let normalized = value.trim().trim_end_matches('/').to_string();
+    (!normalized.is_empty()).then_some(normalized)
+}
+
+/// Update only the upstream base URL inside a stored Codex provider settings object.
+///
+/// This intentionally does not write the live Codex config. It is used by the local
+/// proxy to persist a successful endpoint failover in cc-switch's canonical provider
+/// record while preserving credentials, model catalog data, and unrelated TOML fields.
+pub(crate) fn update_provider_settings_base_url(
+    settings: &mut Value,
+    new_base_url: &str,
+) -> Result<Option<String>, String> {
+    let new_base_url = normalize_provider_base_url(new_base_url)
+        .ok_or_else(|| "provider base_url cannot be empty".to_string())?;
+
+    if let Some(current) = settings.get("base_url").and_then(Value::as_str) {
+        let previous = normalize_provider_base_url(current);
+        settings["base_url"] = Value::String(new_base_url);
+        return Ok(previous);
+    }
+
+    if let Some(current) = settings.get("baseURL").and_then(Value::as_str) {
+        let previous = normalize_provider_base_url(current);
+        settings["baseURL"] = Value::String(new_base_url);
+        return Ok(previous);
+    }
+
+    let Some(config) = settings.get_mut("config") else {
+        return Err("Codex provider settings do not contain a writable base_url".to_string());
+    };
+
+    if let Some(config_object) = config.as_object_mut() {
+        let previous = config_object
+            .get("base_url")
+            .and_then(Value::as_str)
+            .and_then(normalize_provider_base_url);
+        config_object.insert("base_url".to_string(), Value::String(new_base_url));
+        return Ok(previous);
+    }
+
+    if let Some(config_text) = config.as_str() {
+        let previous = extract_codex_base_url(config_text)
+            .or_else(|| crate::grok_config::extract_base_url(config_text))
+            .and_then(|value| normalize_provider_base_url(&value));
+        let updated = update_codex_toml_field(config_text, "base_url", &new_base_url)?;
+        *config = Value::String(updated);
+        return Ok(previous);
+    }
+
+    Err("Codex provider config is neither an object nor TOML text".to_string())
+}
+
 pub fn codex_auth_has_login_material(auth: &Value) -> bool {
     let Some(obj) = auth.as_object() else {
         return false;
@@ -3955,9 +4009,9 @@ web_search = "disabled"
         let catalog = r#"{
             "models": [
                 { "slug": "gpt-5.4", "input_modalities": ["text", "image"] },
-                { "slug": "deepseek-v4-pro", "input_modalities": ["text"] },
+                { "slug": "deepseek-v4-pro", "input_modalities": ["text", "image"] },
                 { "slug": "gpt-text-override", "input_modalities": ["text"] },
-                { "slug": "deepseek-v4-flash", "input_modalities": ["text", "image"] }
+                { "slug": "deepseek-chat", "input_modalities": ["text", "image"] }
             ]
         }"#;
 
@@ -3970,7 +4024,7 @@ web_search = "disabled"
         );
         assert!(
             models[1].get("inputModalities").is_none(),
-            "confirmed text-only capability is inferred and must remain registry-driven"
+            "V4 text+image is inferred and must not become a sticky hidden override"
         );
         assert_eq!(
             models[2].get("inputModalities"),
@@ -3980,7 +4034,7 @@ web_search = "disabled"
         assert_eq!(
             models[3].get("inputModalities"),
             Some(&json!(["text", "image"])),
-            "an explicit image override for a registered text-only model must round-trip"
+            "an explicit image override for a confirmed text-only model must round-trip"
         );
     }
 
