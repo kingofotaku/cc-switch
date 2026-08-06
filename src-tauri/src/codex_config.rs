@@ -113,6 +113,8 @@ fn codex_native_gateway_rejects_web_search(config_text: &str) -> bool {
     false
 }
 const CODEX_MODEL_CATALOG_TEMPLATE_SLUG: &str = "gpt-5.5";
+const CODEX_BACKEND_INTERNAL_CATALOG_FIELDS: &[&str] =
+    &["use_responses_lite", "multi_agent_version", "tool_mode"];
 
 /// Which Codex tool surface the generated model catalog should target.
 ///
@@ -673,7 +675,15 @@ fn codex_catalog_model_entry(
         }
     }
 
+    strip_codex_backend_internal_catalog_fields(entry_obj);
+
     entry
+}
+
+fn strip_codex_backend_internal_catalog_fields(entry_obj: &mut serde_json::Map<String, Value>) {
+    for key in CODEX_BACKEND_INTERNAL_CATALOG_FIELDS {
+        entry_obj.remove(*key);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1048,11 +1058,11 @@ fn load_codex_native_responses_template() -> Value {
 /// rejection bug.
 const CODEX_DEEPSEEK_OFFICIAL_CATALOG_HOSTS: &[&str] = &["deepseek.com"];
 
-/// Bundled copy of DeepSeek's official Codex models.json — the exact file
-/// their one-click integration script writes (api-docs.deepseek.com →
-/// quick_start/agent_integrations/codex): freeform apply_patch, GPT-5 harness
-/// base_instructions, low/high/max reasoning levels, web_search supported,
-/// 1m context. Declares `minimal_client_version` 0.144.0.
+/// Bundled copy of DeepSeek's official Codex models.json from their one-click
+/// integration script (api-docs.deepseek.com → quick_start/agent_integrations/codex):
+/// freeform apply_patch, GPT-5 harness base_instructions, low/high/max reasoning
+/// levels, web_search supported, 1m context. Backend-internal Codex routing fields
+/// are stripped before writing a custom-provider catalog.
 fn load_codex_deepseek_official_catalog_models() -> Vec<Value> {
     let text = include_str!("resources/codex_deepseek_catalog_template.json");
     let catalog: Value =
@@ -1092,9 +1102,9 @@ fn codex_official_vendor_catalog_models(
 
 /// Build one catalog entry from an official vendor catalog: match the user's
 /// model id against the vendor entries by slug; an unknown id clones the
-/// vendor's first (flagship) entry so it keeps the gateway's capability
-/// profile without impersonating the flagship. The official entry is
-/// authoritative — no tool-profile stripping — but explicit per-row user
+/// vendor's first (flagship) entry so it keeps the gateway's capability profile
+/// without impersonating the flagship. Official capability fields are authoritative,
+/// but backend-internal Codex routing hints are stripped and explicit per-row user
 /// overrides still win.
 fn codex_vendor_catalog_model_entry(
     vendor_models: &[Value],
@@ -1150,6 +1160,9 @@ fn codex_vendor_catalog_model_entry(
     // Defensive: if a future codex parser requires a field the vendor file
     // predates, backfill only whitelisted parser-required keys.
     fill_template_fields_from_static(&mut entry);
+    if let Some(entry_obj) = entry.as_object_mut() {
+        strip_codex_backend_internal_catalog_fields(entry_obj);
+    }
     entry
 }
 
@@ -3377,6 +3390,59 @@ base_url = "https://production.api/v1"
     }
 
     #[test]
+    fn proxy_chat_catalog_strips_codex_backend_internal_tool_mode_fields() {
+        // Custom providers must not inherit ChatGPT/Codex backend-internal routing
+        // hints from a future bundled template. Those fields can route the model
+        // into Responses Lite / multi-agent paths that do not expose local tools.
+        let template = json!({
+            "slug": "template",
+            "display_name": "Template",
+            "description": "Template",
+            "context_window": 128_000,
+            "max_context_window": 128_000,
+            "base_instructions": "You are Codex.",
+            "shell_type": "shell_command",
+            "apply_patch_tool_type": "freeform",
+            "supports_parallel_tool_calls": true,
+            "use_responses_lite": true,
+            "multi_agent_version": "v2",
+            "tool_mode": "lite"
+        });
+        let specs = vec![CodexCatalogModelSpec {
+            model: "gpt-5.6-sol".to_string(),
+            display_name: Some("GPT 5.6 Sol".to_string()),
+            context_window: Some(450_000),
+            supports_parallel_tool_calls: None,
+            input_modalities: None,
+            base_instructions: None,
+        }];
+
+        let catalog = codex_model_catalog_from_specs(
+            &specs,
+            &template,
+            CodexCatalogToolProfile::ProxyChat,
+            128_000,
+        );
+        let entry = &catalog["models"][0];
+
+        for key in ["use_responses_lite", "multi_agent_version", "tool_mode"] {
+            assert!(
+                entry.get(key).is_none(),
+                "custom-provider catalog entries must strip backend-internal field `{key}`"
+            );
+        }
+        assert_eq!(
+            entry.get("shell_type").and_then(|v| v.as_str()),
+            Some("shell_command")
+        );
+        assert_eq!(
+            entry.get("apply_patch_tool_type").and_then(|v| v.as_str()),
+            Some("freeform"),
+            "proxy-chat custom providers still keep freeform apply_patch"
+        );
+    }
+
+    #[test]
     fn catalog_infers_image_input_independently_of_tool_profile() {
         // Start from a deliberately text-only template to prove that every
         // profile overwrites template defaults with shared capability logic.
@@ -3496,10 +3562,10 @@ wire_api = "responses"
     fn deepseek_host_native_catalog_mirrors_official_entries() {
         // DeepSeek publishes an official Codex models.json (freeform
         // apply_patch + GPT-5 harness + low/high/max reasoning levels). For a
-        // deepseek.com native provider the generated catalog must mirror it
-        // verbatim instead of the stripped neutral template — the harness
-        // tells the model to use apply_patch, so stripping the tool while
-        // keeping the harness would be self-inconsistent.
+        // deepseek.com native provider the generated catalog keeps those vendor
+        // capability fields instead of the stripped neutral template — the harness
+        // tells the model to use apply_patch, so stripping the tool while keeping
+        // the harness would be self-inconsistent.
         let settings = json!({
             "modelCatalog": {
                 "models": [
@@ -3553,8 +3619,14 @@ wire_api = "responses"
         assert_eq!(flash.get("input_modalities"), Some(&json!(["text"])));
         assert!(
             flash.get("model_messages").is_some(),
-            "official entries are mirrored verbatim, incl. model_messages"
+            "official entries keep vendor model_messages"
         );
+        for key in ["use_responses_lite", "multi_agent_version", "tool_mode"] {
+            assert!(
+                flash.get(key).is_none(),
+                "official vendor catalog still strips Codex backend-internal field `{key}`"
+            );
+        }
         // No explicit contextWindow on the row: the official 1m window must
         // survive instead of being clobbered by the 128k default.
         assert_eq!(
@@ -4022,9 +4094,10 @@ web_search = "disabled"
             models[0].get("inputModalities").is_none(),
             "GPT text+image is inferred and must not become a sticky hidden override"
         );
-        assert!(
-            models[1].get("inputModalities").is_none(),
-            "V4 text+image is inferred and must not become a sticky hidden override"
+        assert_eq!(
+            models[1].get("inputModalities"),
+            Some(&json!(["text", "image"])),
+            "an explicit image override for a confirmed text-only V4 model must round-trip"
         );
         assert_eq!(
             models[2].get("inputModalities"),
