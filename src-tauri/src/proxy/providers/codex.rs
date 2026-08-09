@@ -1958,9 +1958,9 @@ wire_api = "responses"
             "config": "base_url = \"https://api.example/v1\"\nwire_api = \"chat\""
         }));
         assert!(!provider_needs_responses_namespace_flatten(&chat));
-        assert!(!provider_needs_responses_namespace_flatten(&create_provider(
-            json!({ "auth": {}, "config": "" })
-        )));
+        assert!(!provider_needs_responses_namespace_flatten(
+            &create_provider(json!({ "auth": {}, "config": "" }))
+        ));
     }
 
     #[test]

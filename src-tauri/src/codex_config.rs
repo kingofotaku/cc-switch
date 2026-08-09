@@ -115,6 +115,19 @@ fn codex_native_gateway_rejects_web_search(config_text: &str) -> bool {
 const CODEX_MODEL_CATALOG_TEMPLATE_SLUG: &str = "gpt-5.5";
 const CODEX_BACKEND_INTERNAL_CATALOG_FIELDS: &[&str] =
     &["use_responses_lite", "multi_agent_version", "tool_mode"];
+const CODEX_CUSTOM_GPT56_TOOL_SURFACE_COMP_HASH: &str = "2911";
+
+/// Detect OpenAI/ChatGPT-branded model ids before applying third-party model
+/// safety stripping. Most GPT templates can keep trusted OpenAI metadata; GPT
+/// 5.6 on custom providers has an explicit stable-tool-surface override below.
+fn is_openai_model_slug(slug: &str) -> bool {
+    let normalized = slug.to_ascii_lowercase();
+    normalized.starts_with("gpt-")
+        || normalized.starts_with("o1")
+        || normalized.starts_with("o3")
+        || normalized.starts_with("o4")
+        || normalized == "codex-auto-review"
+}
 
 /// Which Codex tool surface the generated model catalog should target.
 ///
@@ -136,6 +149,32 @@ pub enum CodexCatalogToolProfile {
     /// (the transform drops it), so it is always disabled — see
     /// `prepare_codex_config_text_with_model_catalog`.
     Anthropic,
+}
+
+fn is_gpt56_model_slug(slug: &str) -> bool {
+    let normalized = slug.rsplit('/').next().unwrap_or(slug).to_ascii_lowercase();
+    normalized.starts_with("gpt-5.6")
+}
+
+fn use_stable_custom_openai_tool_surface(slug: &str, profile: CodexCatalogToolProfile) -> bool {
+    profile == CodexCatalogToolProfile::ProxyChat && is_gpt56_model_slug(slug)
+}
+
+fn apply_stable_custom_openai_tool_surface(entry_obj: &mut serde_json::Map<String, Value>) {
+    entry_obj.insert(
+        "comp_hash".to_string(),
+        json!(CODEX_CUSTOM_GPT56_TOOL_SURFACE_COMP_HASH),
+    );
+    entry_obj.insert("include_skills_usage_instructions".to_string(), json!(true));
+    entry_obj.insert("use_responses_lite".to_string(), json!(false));
+    for key in [
+        "multi_agent_version",
+        "tool_mode",
+        "prefer_websockets",
+        "reasoning_summary_format",
+    ] {
+        entry_obj.remove(key);
+    }
 }
 
 impl CodexCatalogToolProfile {
@@ -675,7 +714,11 @@ fn codex_catalog_model_entry(
         }
     }
 
-    strip_codex_backend_internal_catalog_fields(entry_obj);
+    if use_stable_custom_openai_tool_surface(&spec.model, profile) {
+        apply_stable_custom_openai_tool_surface(entry_obj);
+    } else if !is_openai_model_slug(&spec.model) {
+        strip_codex_backend_internal_catalog_fields(entry_obj);
+    }
 
     entry
 }
@@ -1104,8 +1147,8 @@ fn codex_official_vendor_catalog_models(
 /// model id against the vendor entries by slug; an unknown id clones the
 /// vendor's first (flagship) entry so it keeps the gateway's capability profile
 /// without impersonating the flagship. Official capability fields are authoritative,
-/// but backend-internal Codex routing hints are stripped and explicit per-row user
-/// overrides still win.
+/// but unsafe backend-internal Codex routing hints are stripped from non-OpenAI
+/// entries and explicit per-row user overrides still win.
 fn codex_vendor_catalog_model_entry(
     vendor_models: &[Value],
     spec: &CodexCatalogModelSpec,
@@ -1161,7 +1204,9 @@ fn codex_vendor_catalog_model_entry(
     // predates, backfill only whitelisted parser-required keys.
     fill_template_fields_from_static(&mut entry);
     if let Some(entry_obj) = entry.as_object_mut() {
-        strip_codex_backend_internal_catalog_fields(entry_obj);
+        if !is_openai_model_slug(&spec.model) {
+            strip_codex_backend_internal_catalog_fields(entry_obj);
+        }
     }
     entry
 }
@@ -3390,10 +3435,11 @@ base_url = "https://production.api/v1"
     }
 
     #[test]
-    fn proxy_chat_catalog_strips_codex_backend_internal_tool_mode_fields() {
-        // Custom providers must not inherit ChatGPT/Codex backend-internal routing
-        // hints from a future bundled template. Those fields can route the model
-        // into Responses Lite / multi-agent paths that do not expose local tools.
+    fn proxy_chat_catalog_uses_stable_tool_surface_for_gpt56_custom_provider() {
+        // GPT-5.6 over a third-party/custom provider currently loses local
+        // shell/apply_patch registration when Codex Desktop is given the newer
+        // 3000/backend-internal tool surface. Keep the model slug and reasoning
+        // levels, but force the stable 2911 tool surface that GPT-5.5 uses.
         let template = json!({
             "slug": "template",
             "display_name": "Template",
@@ -3401,12 +3447,18 @@ base_url = "https://production.api/v1"
             "context_window": 128_000,
             "max_context_window": 128_000,
             "base_instructions": "You are Codex.",
+            "comp_hash": "3000",
+            "include_skills_usage_instructions": false,
             "shell_type": "shell_command",
             "apply_patch_tool_type": "freeform",
             "supports_parallel_tool_calls": true,
             "use_responses_lite": true,
             "multi_agent_version": "v2",
-            "tool_mode": "lite"
+            "tool_mode": "code_mode_only",
+            "supported_reasoning_levels": [
+                {"effort": "low", "description": "low"},
+                {"effort": "ultra", "description": "ultra"}
+            ]
         });
         let specs = vec![CodexCatalogModelSpec {
             model: "gpt-5.6-sol".to_string(),
@@ -3425,12 +3477,22 @@ base_url = "https://production.api/v1"
         );
         let entry = &catalog["models"][0];
 
-        for key in ["use_responses_lite", "multi_agent_version", "tool_mode"] {
-            assert!(
-                entry.get(key).is_none(),
-                "custom-provider catalog entries must strip backend-internal field `{key}`"
-            );
-        }
+        assert_eq!(entry.get("comp_hash"), Some(&json!("2911")));
+        assert_eq!(
+            entry.get("include_skills_usage_instructions"),
+            Some(&json!(true))
+        );
+        assert_eq!(entry.get("use_responses_lite"), Some(&json!(false)));
+        assert_eq!(
+            entry.get("multi_agent_version"),
+            None,
+            "custom-provider GPT-5.6 must not enter the 3000 multi-agent tool path"
+        );
+        assert_eq!(
+            entry.get("tool_mode"),
+            None,
+            "custom-provider GPT-5.6 must not carry backend tool_mode"
+        );
         assert_eq!(
             entry.get("shell_type").and_then(|v| v.as_str()),
             Some("shell_command")
@@ -3439,6 +3501,64 @@ base_url = "https://production.api/v1"
             entry.get("apply_patch_tool_type").and_then(|v| v.as_str()),
             Some("freeform"),
             "proxy-chat custom providers still keep freeform apply_patch"
+        );
+        let efforts: Vec<_> = entry["supported_reasoning_levels"]
+            .as_array()
+            .expect("reasoning levels must stay present")
+            .iter()
+            .filter_map(|level| level.get("effort").and_then(|value| value.as_str()))
+            .collect();
+        assert!(
+            efforts.contains(&"ultra"),
+            "GPT-5.6-specific reasoning levels must be preserved"
+        );
+    }
+
+    #[test]
+    fn proxy_chat_catalog_strips_non_openai_backend_internal_tool_mode_fields() {
+        // Third-party custom-provider models must not inherit ChatGPT/Codex
+        // backend-internal routing hints. GPT-5.6 has its own compatibility
+        // test above; older GPT templates remain trusted when safe.
+        let template = json!({
+            "slug": "template",
+            "display_name": "Template",
+            "description": "Template",
+            "context_window": 128_000,
+            "max_context_window": 128_000,
+            "base_instructions": "You are Codex.",
+            "shell_type": "shell_command",
+            "apply_patch_tool_type": "freeform",
+            "supports_parallel_tool_calls": true,
+            "use_responses_lite": true,
+            "multi_agent_version": "v2",
+            "tool_mode": "lite"
+        });
+        let specs = vec![CodexCatalogModelSpec {
+            model: "deepseek/deepseek-v4-pro".to_string(),
+            display_name: Some("DeepSeek V4 Pro".to_string()),
+            context_window: Some(128_000),
+            supports_parallel_tool_calls: None,
+            input_modalities: None,
+            base_instructions: None,
+        }];
+
+        let catalog = codex_model_catalog_from_specs(
+            &specs,
+            &template,
+            CodexCatalogToolProfile::ProxyChat,
+            128_000,
+        );
+        let entry = &catalog["models"][0];
+
+        for key in ["use_responses_lite", "multi_agent_version", "tool_mode"] {
+            assert!(
+                entry.get(key).is_none(),
+                "non-OpenAI custom-provider entries must strip backend-internal field `{key}`"
+            );
+        }
+        assert_eq!(
+            entry.get("shell_type").and_then(|v| v.as_str()),
+            Some("shell_command")
         );
     }
 
@@ -3624,7 +3744,7 @@ wire_api = "responses"
         for key in ["use_responses_lite", "multi_agent_version", "tool_mode"] {
             assert!(
                 flash.get(key).is_none(),
-                "official vendor catalog still strips Codex backend-internal field `{key}`"
+                "non-OpenAI official vendor entries must strip backend-internal field `{key}`"
             );
         }
         // No explicit contextWindow on the row: the official 1m window must
