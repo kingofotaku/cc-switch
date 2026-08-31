@@ -3,7 +3,7 @@
   "upstream_repository": "https://github.com/farion1231/cc-switch.git",
   "base_tag": "v3.20.1",
   "base_commit": "3217f72596f2d1c0f879f0a05f83803825d9809f",
-  "source_commit": "efd00837c491ea9daf654b62863fcabeb47c970d",
+  "source_commit": "ef5f62147ec443c910aa7b7119c5448a8e59fb5d",
   "integration_branch": "codex/model-aware-catalog-v3.20.1",
   "cc_switch_version": "3.20.1",
   "runtime_change": "model-aware-catalog-and-codex-endpoint-failover",
