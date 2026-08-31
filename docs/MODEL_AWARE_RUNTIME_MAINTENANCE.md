@@ -1,9 +1,10 @@
 # Model-Aware Runtime Maintenance
 
-This branch carries a small CCS runtime change that lets Codex use
-model-level `codexChatReasoning` metadata before provider-level fallback
-metadata. It is intentionally maintained as a source branch rather than as a
-permanent binary fork.
+This branch integrates the local Codex compatibility layer with CCS v3.20.1.
+It keeps only behavior that upstream does not yet provide and adopts the
+official implementation whenever v3.20.1 already covers the same feature. It
+is intentionally maintained as a source branch rather than as a permanent
+binary fork.
 
 ## Architecture
 
@@ -24,10 +25,15 @@ upstream provider API
 ```
 
 The external catalog-repair project owns model discovery, family matching,
-input/tool capability metadata, and verified reasoning levels. This CCS branch
-only consumes the per-model metadata and converts the selected effort to the
-transport field required by the selected provider. The provider-level CCS
-setting remains a fallback for legacy rows that have no model-level metadata.
+input/tool capability metadata, and verified reasoning levels. CCS consumes
+that metadata, preserves it through the provider UI, and converts the selected
+effort to the transport field required by the selected provider. The
+provider-level CCS setting remains a fallback for legacy rows that have no
+model-level metadata.
+
+CCS v3.20.1 is authoritative for OAuth crash-recovery preservation, catalog
+`reasoningLevels` / `defaultReasoningLevel`, and DeepSeek V4 text-only input
+modality inference. The local branch does not duplicate those implementations.
 
 Context-window values are deliberately outside this feature. Existing
 `contextWindow`, `maxContextWindow`, and
@@ -38,23 +44,36 @@ generated or overwritten by the runtime patch.
 
 - Upstream remote: `upstream` (`farion1231/cc-switch`)
 - Personal fork remote: `origin` (`kingofotaku/cc-switch`)
-- Working branch: `codex/model-aware-catalog-v3.19.0`
+- Working branch: `codex/model-aware-catalog-v3.20.1`
 - Capability metadata remains generated outside CCS by the Codex catalog repair
   pipeline; this repository only teaches CCS how to consume model-level data.
 
 ## Changed Files
 
+- `src-tauri/src/codex_config.rs`: retains the stable GPT-5.6 custom-provider
+  tool surface and strips backend-only tool mode fields from non-OpenAI
+  custom/vendor catalog entries.
 - `src-tauri/src/proxy/providers/codex.rs`: resolves model-level reasoning
   metadata first, accepts common model-id aliases, and preserves the existing
   provider-level fallback.
 - `src-tauri/src/proxy/providers/transform_codex_chat.rs`: maps the
-  model-specific `thinking_level` transport used by Gemini-style providers.
+  model-specific `thinking_level` transport used by Gemini-style providers
+  while retaining the official Zen effort path.
+- `src-tauri/src/proxy/endpoint_failover.rs` and forwarder/router integration:
+  rotates a multi-endpoint provider after three failed requests, persists the
+  selected endpoint, and then preserves the existing provider-level failover
+  behavior.
+- `src-tauri/src/database/dao/providers.rs`: persists endpoint selection with
+  compare-and-swap semantics and hydrates custom endpoints for routing.
 - `src/types.ts`: keeps model-level capability metadata in the Codex catalog
-  type instead of dropping it during serialization.
+  type instead of dropping it during serialization, including official
+  reasoning-level fields and local `codexChatReasoning` transport metadata.
 - `src/components/providers/forms/ProviderForm.tsx`: preserves hidden
   capability metadata when the provider form saves a catalog.
 - `src/components/providers/forms/hooks/useCodexConfigState.ts`: loads and
   retains model-level metadata across UI state transitions.
+- Endpoint speed-test/provider UI files expose the endpoint-failover switch
+  only where multiple endpoints exist.
 - `tests/components/ProviderForm.codexCatalog.test.ts`: frontend round-trip
   regression coverage.
 - The first model-aware commit is the reproducible source delta from the
@@ -87,14 +106,16 @@ pass.
 ```powershell
 git remote add upstream https://github.com/farion1231/cc-switch.git
 git fetch upstream --tags
-git switch codex/model-aware-catalog-v3.19.0
-git merge --no-ff v3.19.0
+git switch codex/model-aware-catalog-v3.20.1
+git merge --no-ff v3.20.1
 ```
 
-Before applying the merge, inspect the upstream diff in the four runtime
-areas: Codex provider resolution, Chat Completions transformation, catalog
-types, and provider-form serialization. A conflict in any of these files is a
-behavioral conflict, not a cosmetic one.
+Before applying a future merge, inspect the upstream diff in Codex provider
+resolution, Chat Completions transformation, catalog types, provider-form
+serialization, endpoint routing, and OAuth recovery. A conflict in any of
+these files is a behavioral conflict, not a cosmetic one. If upstream now
+implements a local feature, delete the local duplicate and retain the official
+implementation plus focused compatibility tests.
 
 If the merge conflicts in the Codex provider or transform files, resolve the
 conflict deliberately and keep the model-level precedence rule. Do not use an
