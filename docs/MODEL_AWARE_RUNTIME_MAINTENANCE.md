@@ -94,7 +94,7 @@ generated or overwritten by the runtime patch.
 
 ## Codex Tool-Surface Compatibility
 
-Codex `0.154.0-alpha.6.2` and upstream `main` commit `c4017a87` still mark
+Codex `0.154.0-alpha.6.2` and upstream `main` commit `1715e55` still mark
 GPT-5.6 and GPT-6 catalog entries as `tool_mode = code_mode_only` with
 `use_responses_lite = true` and `comp_hash = 3000`. That backend-internal
 surface does not expose the local shell and `apply_patch` tools correctly when
