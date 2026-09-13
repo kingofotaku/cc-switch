@@ -1,8 +1,8 @@
 # Model-Aware Runtime Maintenance
 
-This branch integrates the local Codex compatibility layer with CCS v3.20.1.
+This branch integrates the local Codex compatibility layer with CCS v3.20.3.
 It keeps only behavior that upstream does not yet provide and adopts the
-official implementation whenever v3.20.1 already covers the same feature. It
+official implementation whenever v3.20.3 already covers the same feature. It
 is intentionally maintained as a source branch rather than as a permanent
 binary fork.
 
@@ -31,7 +31,7 @@ effort to the transport field required by the selected provider. The
 provider-level CCS setting remains a fallback for legacy rows that have no
 model-level metadata.
 
-CCS v3.20.1 is authoritative for OAuth crash-recovery preservation, catalog
+CCS v3.20.3 is authoritative for OAuth crash-recovery preservation, catalog
 `reasoningLevels` / `defaultReasoningLevel`, and DeepSeek V4 text-only input
 modality inference. The local branch does not duplicate those implementations.
 
@@ -44,15 +44,15 @@ generated or overwritten by the runtime patch.
 
 - Upstream remote: `upstream` (`farion1231/cc-switch`)
 - Personal fork remote: `origin` (`kingofotaku/cc-switch`)
-- Working branch: `codex/model-aware-catalog-v3.20.1`
+- Working branch: `codex/model-aware-catalog-v3.20.3`
 - Capability metadata remains generated outside CCS by the Codex catalog repair
   pipeline; this repository only teaches CCS how to consume model-level data.
 
 ## Changed Files
 
-- `src-tauri/src/codex_config.rs`: retains the stable GPT-5.6 custom-provider
-  tool surface and strips backend-only tool mode fields from non-OpenAI
-  custom/vendor catalog entries.
+- `src-tauri/src/codex_config.rs`: retains the stable custom-provider tool
+  surface for GPT-5.6 and GPT-6 catalog entries and strips backend-only tool
+  mode fields from non-OpenAI custom/vendor catalog entries.
 - `src-tauri/src/proxy/providers/codex.rs`: resolves model-level reasoning
   metadata first, accepts common model-id aliases, and preserves the existing
   provider-level fallback.
@@ -92,6 +92,21 @@ generated or overwritten by the runtime patch.
 5. Never invent `xhigh`, `max`, image input, audio input, or tool support for an
    unknown model.
 
+## Codex Tool-Surface Compatibility
+
+Codex `0.154.0-alpha.6.2` and upstream `main` commit `c4017a87` still mark
+GPT-5.6 and GPT-6 catalog entries as `tool_mode = code_mode_only` with
+`use_responses_lite = true` and `comp_hash = 3000`. That backend-internal
+surface does not expose the local shell and `apply_patch` tools correctly when
+the model is reached through a third-party Codex provider.
+
+The compatibility projection therefore continues to emit the stable `2911`
+surface (`use_responses_lite = false`) and removes `tool_mode` and
+`multi_agent_version` for GPT-5.6 and GPT-6 over proxy-chat providers. Do not
+remove this projection solely because Codex has been updated; first re-check
+the bundled model metadata for the installed Codex build and add a failing
+regression test before deleting it.
+
 The catalog-repair layer must therefore encode a model with only the effort
 levels verified for that family. A model that supports only `high` must not
 inherit `xhigh` merely because another model from the same provider supports
@@ -106,8 +121,8 @@ pass.
 ```powershell
 git remote add upstream https://github.com/farion1231/cc-switch.git
 git fetch upstream --tags
-git switch codex/model-aware-catalog-v3.20.1
-git merge --no-ff v3.20.1
+git switch codex/model-aware-catalog-v3.20.3
+git merge --no-ff v3.20.3
 ```
 
 Before applying a future merge, inspect the upstream diff in Codex provider
@@ -144,6 +159,11 @@ Build the renderer and then use the repository-local Tauri CLI:
 & .\node_modules\.bin\tauri.cmd build --no-bundle --ci `
     --config .\src-tauri\tauri.model-aware-build.conf.json
 ```
+
+On this Windows host, place the Rust toolchain bin directory first in `PATH`
+and set `CARGO`, `RUSTC`, `CARGO_HOME`, and `RUSTUP_HOME` explicitly when the
+Tauri CLI reports that Cargo is missing. A direct `cargo metadata` success is
+not sufficient because the Tauri CLI launches Cargo in a child environment.
 
 Do not use `cargo build --release` as the distributable build. A production
 artifact can still contain the literal development URL because Tauri compiles
