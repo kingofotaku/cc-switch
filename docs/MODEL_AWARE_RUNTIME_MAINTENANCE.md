@@ -92,6 +92,19 @@ generated or overwritten by the runtime patch.
 5. Never invent `xhigh`, `max`, image input, audio input, or tool support for an
    unknown model.
 
+An exact model rule is authoritative over stale provider-imported capability
+fields for modality and reasoning metadata. This lets a documented model update
+(for example, the current DeepSeek Flash vision and reasoning levels) repair a
+provider row without changing its operator-owned `contextWindow`,
+`maxContextWindow`, or `effectiveContextWindowPercent` values. Generic family
+rules remain lower priority, and explicit user context settings are never
+overwritten by capability projection.
+
+The current DeepSeek mapping follows the official API documentation:
+`deepseek-flash` and the legacy `deepseek-v4-flash` alias accept images, while
+`deepseek-v4-pro` is text-only. Both expose `low`, `high`, and optional `max`
+reasoning effort with `high` as the default.
+
 ## Codex Tool-Surface Compatibility
 
 Codex `0.154.0-alpha.6.2` and upstream `main` commit `1715e55` still mark

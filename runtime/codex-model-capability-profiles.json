@@ -382,24 +382,45 @@
     },
     {
       "patterns": [
-        "(?:^|/)deepseek-v4-(?:flash|pro)$"
+        "(?:^|/)deepseek-(?:v4-)?flash(?:-vision-exp)?$"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supports_image_detail_original": true,
+      "reasoning_levels": [
+        "low",
+        "high",
+        "max"
+      ],
+      "default_reasoning_level": "high",
+      "evidence": [
+        "https://api-docs.deepseek.com/quick_start/agent_integrations/codex/",
+        "https://api-docs.deepseek.com/guides/vision/",
+        "https://api-docs.deepseek.com/guides/thinking_mode/"
+      ],
+      "supports_parallel_tool_calls": true
+    },
+    {
+      "patterns": [
+        "(?:^|/)deepseek-v4-pro$"
       ],
       "input_modalities": [
         "text"
       ],
       "reasoning_levels": [
-        "none",
         "low",
-        "medium",
         "high",
-        "xhigh",
         "max"
       ],
       "default_reasoning_level": "high",
       "evidence": [
         "https://api-docs.deepseek.com/guides/thinking_mode",
-        "https://api-docs.deepseek.com/guides/function_calling"
-      ]
+        "https://api-docs.deepseek.com/guides/function_calling",
+        "https://api-docs.deepseek.com/quick_start/pricing"
+      ],
+      "supports_parallel_tool_calls": true
     },
     {
       "patterns": [
